@@ -67,3 +67,40 @@ backend_context_records_draws :: proc(t: ^testing.T) {
 	testing.expect_value(t, fake.ops[1].kind, Fake_Draw_Kind.Push_Clip)
 	testing.expect_value(t, fake.ops[2].kind, Fake_Draw_Kind.Pop_Clip)
 }
+
+@(test)
+capture_mouse_when_pointer_over_widget :: proc(t: ^testing.T) {
+	input := Input{mouse_pos = {12, 16}}
+	capture := input_capture_from_frame(
+		input,
+		Capture_Frame_State {
+			pointer_regions = []Rect{{x = 10, y = 10, w = 80, h = 20}},
+		},
+	)
+
+	testing.expect_value(t, capture.pointer_over_ui, true)
+	testing.expect_value(t, capture.mouse, true)
+	testing.expect_value(t, capture.keyboard, false)
+}
+
+@(test)
+capture_keyboard_when_text_focused :: proc(t: ^testing.T) {
+	capture := input_capture_from_frame(
+		Input{},
+		Capture_Frame_State{wants_text_input = true},
+	)
+
+	testing.expect_value(t, capture.keyboard, true)
+	testing.expect_value(t, capture.text, true)
+}
+
+@(test)
+do_not_capture_empty_frame :: proc(t: ^testing.T) {
+	capture := input_capture_from_frame(Input{}, Capture_Frame_State{})
+
+	testing.expect_value(t, capture.mouse, false)
+	testing.expect_value(t, capture.keyboard, false)
+	testing.expect_value(t, capture.text, false)
+	testing.expect_value(t, capture.wheel, false)
+	testing.expect_value(t, capture.pointer_over_ui, false)
+}

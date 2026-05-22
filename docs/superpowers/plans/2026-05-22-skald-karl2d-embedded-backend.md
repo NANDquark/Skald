@@ -10,6 +10,29 @@
 
 ---
 
+## Resume Snapshot
+
+Last updated: 2026-05-22.
+
+Current implementation state:
+
+- Complete: Task 1, committed as `c191ebc feat: add skald backend service contracts`.
+- Complete: Task 2, committed as `6c8ec06 feat: add backend-neutral input capture helpers`.
+- Next task: Task 3, "Existing Renderer Compatibility Facade".
+- Last verified command: `odin test ./skald -collection:gui=. -define:SKALD_RUNA=false`, passing with 4 tests after Task 2.
+- Current branch: `main`, with `HEAD` at `6c8ec06`.
+- Dirty worktree items to preserve: `.gitmodules` and `karl2d` are staged additions that predate this plan execution, and `.superpowers/` is untracked. Do not stage, unstage, modify, remove, or include them in commits unless the user explicitly asks.
+- Commit discipline for remaining tasks: always use explicit pathspecs, for example `git commit -m "..." -- skald/file.odin ...`, so unrelated staged files are not committed.
+
+Implemented details that differ from the original task skeleton:
+
+- `Backend_Font` was intentionally not added. `Backend_Text` uses the existing Skald `Font` type.
+- Fake backend helpers live in `skald/backend_fake_test.odin` only, not production code.
+- Backend wrapper procs in `skald/backend.odin` assert that context, backend, and callbacks are configured before dispatch.
+- `Backend_Text.wrap` and `Backend_Clipboard.get_text` document returned data lifetime.
+- `Fake_Draw_Kind` currently contains only the operations the tests support: `Rect`, `Push_Clip`, and `Pop_Clip`.
+- Gamepad-to-UI navigation remains a future desired enhancement. `Gamepad_Navigation` is only a capability flag for now; no navigation mapping is implemented yet.
+
 ## File Structure
 
 - Create `skald/backend.odin`: backend service structs, handle types, capture type, capability flags, and `Render_Context`.
@@ -33,11 +56,13 @@
 
 ## Task 1: Backend Contract Types
 
+Status: complete in commit `c191ebc`.
+
 **Files:**
 - Create: `skald/backend.odin`
 - Create: `skald/backend_fake_test.odin`
 
-- [ ] **Step 1: Write the failing backend contract test**
+- [x] **Step 1: Write the failing backend contract test**
 
 Create `skald/backend_fake_test.odin`:
 
@@ -64,7 +89,7 @@ backend_context_records_draws :: proc(t: ^testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the test and verify it fails**
+- [x] **Step 2: Run the test and verify it fails**
 
 Run:
 
@@ -74,7 +99,7 @@ odin test ./skald -collection:gui=. -define:SKALD_RUNA=false
 
 Expected: FAIL because `Fake_Backend_State`, `fake_backend`, `render_context_from_backend`, `backend_draw_rect`, `backend_push_clip`, and `backend_pop_clip` do not exist.
 
-- [ ] **Step 3: Add backend contracts and fake backend**
+- [x] **Step 3: Add backend contracts and fake backend**
 
 Create `skald/backend.odin`:
 
@@ -226,7 +251,7 @@ fake_backend :: proc(state: ^Fake_Backend_State) -> Backend {
 }
 ```
 
-- [ ] **Step 4: Run the test and verify it passes**
+- [x] **Step 4: Run the test and verify it passes**
 
 Run:
 
@@ -236,7 +261,7 @@ odin test ./skald -collection:gui=. -define:SKALD_RUNA=false
 
 Expected: PASS for `backend_context_records_draws`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skald/backend.odin skald/backend_fake_test.odin
@@ -245,11 +270,13 @@ git commit -m "feat: add skald backend service contracts"
 
 ## Task 2: Input Capture Helpers
 
+Status: complete in commit `6c8ec06`.
+
 **Files:**
 - Create: `skald/input_capture.odin`
 - Modify: `skald/backend_fake_test.odin`
 
-- [ ] **Step 1: Add failing capture tests**
+- [x] **Step 1: Add failing capture tests**
 
 Append to `skald/backend_fake_test.odin`:
 
@@ -292,7 +319,7 @@ do_not_capture_empty_frame :: proc(t: ^testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests and verify they fail**
+- [x] **Step 2: Run tests and verify they fail**
 
 Run:
 
@@ -302,7 +329,7 @@ odin test ./skald -collection:gui=. -define:SKALD_RUNA=false
 
 Expected: FAIL because `Capture_Frame_State` and `input_capture_from_frame` do not exist.
 
-- [ ] **Step 3: Implement capture helpers**
+- [x] **Step 3: Implement capture helpers**
 
 Create `skald/input_capture.odin`:
 
@@ -352,7 +379,7 @@ input_capture_from_frame :: proc(input: Input, frame: Capture_Frame_State) -> In
 }
 ```
 
-- [ ] **Step 4: Run tests and verify they pass**
+- [x] **Step 4: Run tests and verify they pass**
 
 Run:
 
@@ -362,7 +389,7 @@ odin test ./skald -collection:gui=. -define:SKALD_RUNA=false
 
 Expected: PASS for all backend and capture tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skald/input_capture.odin skald/backend_fake_test.odin
@@ -371,11 +398,35 @@ git commit -m "feat: add backend-neutral input capture helpers"
 
 ## Task 3: Existing Renderer Compatibility Facade
 
+Status: next task to execute.
+
 **Files:**
 - Modify: `skald/backend.odin`
 - Modify: `skald/draw.odin`
 - Modify: `skald/clip.odin`
 - Modify: `skald/renderer.odin`
+
+Important resume notes:
+
+- Preserve the assertion-backed wrappers already present in `skald/backend.odin`.
+- Prefer implementing the new public facades through the existing helpers where possible:
+
+```odin
+draw_rect :: proc(r: ^Render_Context, rect: Rect, color: Color, radius: f32 = 0) {
+    backend_draw_rect(r, rect, color, radius)
+}
+
+push_clip :: proc(r: ^Render_Context, rect: Rect) {
+    backend_push_clip(r, rect)
+}
+
+pop_clip :: proc(r: ^Render_Context) {
+    backend_pop_clip(r)
+}
+```
+
+- Add equivalent assertion-backed helpers or local assertions before dispatching `shadow`, `gradient_rect`, and `set_alpha`; do not introduce unchecked callback dispatch where the existing wrappers already established a defensive pattern.
+- The original Task 3 commit command below is intentionally too broad for the current dirty worktree. Use the updated explicit pathspec command in Step 6.
 
 - [ ] **Step 1: Add failing compatibility test**
 
@@ -518,7 +569,7 @@ Expected: tests PASS. `./build.sh 07_counter` may fail at this point because lay
 
 ```bash
 git add skald/backend.odin skald/draw.odin skald/clip.odin skald/backend_fake_test.odin
-git commit -m "refactor: add renderer backend compatibility facade"
+git commit -m "refactor: add renderer backend compatibility facade" -- skald/backend.odin skald/draw.odin skald/clip.odin skald/backend_fake_test.odin
 ```
 
 ## Task 4: Migrate Layout to Render_Context

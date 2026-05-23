@@ -6,6 +6,7 @@ Fake_Draw_Kind :: enum {
 	Rect,
 	Push_Clip,
 	Pop_Clip,
+	Set_Alpha,
 }
 
 Fake_Draw_Op :: struct {
@@ -13,6 +14,7 @@ Fake_Draw_Op :: struct {
 	rect:   Rect,
 	color:  Color,
 	radius: f32,
+	alpha:  f32,
 }
 
 Fake_Backend_State :: struct {
@@ -34,6 +36,11 @@ fake_pop_clip :: proc(state: rawptr) {
 	append(&s.ops, Fake_Draw_Op{kind = .Pop_Clip})
 }
 
+fake_set_alpha :: proc(state: rawptr, alpha: f32) {
+	s := (^Fake_Backend_State)(state)
+	append(&s.ops, Fake_Draw_Op{kind = .Set_Alpha, alpha = alpha})
+}
+
 fake_backend :: proc(state: ^Fake_Backend_State) -> Backend {
 	return Backend {
 		state = state,
@@ -41,6 +48,7 @@ fake_backend :: proc(state: ^Fake_Backend_State) -> Backend {
 			rect = fake_draw_rect,
 			push_clip = fake_push_clip,
 			pop_clip = fake_pop_clip,
+			set_alpha = fake_set_alpha,
 		},
 	}
 }
@@ -85,6 +93,71 @@ render_view_draws_rect_through_backend_context :: proc(t: ^testing.T) {
 	testing.expect_value(t, fake.ops[0].rect, Rect{5, 6, 10, 20})
 	testing.expect_value(t, fake.ops[0].color, rgb(0x00FF00))
 	testing.expect_value(t, fake.ops[0].radius, f32(3))
+}
+
+@(test)
+render_view_queues_overlay_on_render_context :: proc(t: ^testing.T) {
+	fake: Fake_Backend_State
+	defer delete(fake.ops)
+
+	overlay_queue := make([dynamic]Overlay_Entry)
+	defer delete(overlay_queue)
+
+	backend := fake_backend(&fake)
+	rc := render_context_from_backend(&backend)
+	rc.frame_size = {200, 100}
+	rc.overlays = &overlay_queue
+
+	render_view(
+		&rc,
+		overlay({x = 180, y = 10, w = 16, h = 20}, rect({40, 12}, rgb(0x00FF00))),
+		{0, 0},
+		{200, 100},
+	)
+
+	if !testing.expect_value(t, len(overlay_queue), 1) {
+		return
+	}
+	testing.expect_value(t, overlay_queue[0].origin, [2]f32{160, 30})
+	testing.expect_value(t, overlay_queue[0].size, [2]f32{40, 12})
+}
+
+@(test)
+render_overlays_uses_context_queue_and_restores_alpha :: proc(t: ^testing.T) {
+	fake: Fake_Backend_State
+	defer delete(fake.ops)
+
+	overlay_queue := make([dynamic]Overlay_Entry)
+	defer delete(overlay_queue)
+
+	backend := fake_backend(&fake)
+	rc := render_context_from_backend(&backend)
+	rc.overlays = &overlay_queue
+	rc.alpha_multiplier = 0.5
+	append(
+		rc.overlays,
+		Overlay_Entry {
+			origin = {10, 20},
+			size = {30, 40},
+			child = rect({30, 40}, rgb(0x00FF00)),
+			opacity = 0.25,
+		},
+	)
+
+	render_overlays(&rc)
+
+	if !testing.expect_value(t, rc.alpha_multiplier, f32(0.5)) {
+		return
+	}
+	if !testing.expect_value(t, len(fake.ops), 3) {
+		return
+	}
+	testing.expect_value(t, fake.ops[0].kind, Fake_Draw_Kind.Set_Alpha)
+	testing.expect_value(t, fake.ops[0].alpha, f32(0.125))
+	testing.expect_value(t, fake.ops[1].kind, Fake_Draw_Kind.Rect)
+	testing.expect_value(t, fake.ops[1].rect, Rect{10, 20, 30, 40})
+	testing.expect_value(t, fake.ops[2].kind, Fake_Draw_Kind.Set_Alpha)
+	testing.expect_value(t, fake.ops[2].alpha, f32(0.5))
 }
 
 @(test)

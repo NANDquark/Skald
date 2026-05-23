@@ -911,7 +911,7 @@ run :: proc(app: App($State, $Msg)) {
 			if t_w.transparent {clear_color.a = 0}
 			if frame_begin(&r, t_w, clear_color) {
 				backend := renderer_backend(&r)
-				rc := render_context_from_backend(&backend)
+				rc := renderer_render_context(&backend, &r)
 				ctx := Ctx(Msg) {
 					theme      = &th,
 					labels     = &lbls,

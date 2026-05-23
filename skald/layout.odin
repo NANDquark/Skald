@@ -10,6 +10,13 @@ render_context_renderer :: proc(r: ^Render_Context) -> ^Renderer {
 	return (^Renderer)(r.backend.state)
 }
 
+@(private)
+render_context_overlays :: proc(r: ^Render_Context) -> ^[dynamic]Overlay_Entry {
+	assert(r != nil, "layout render requires render context")
+	assert(r.overlays != nil, "layout overlay rendering requires overlay queue")
+	return r.overlays
+}
+
 // layout.odin is Phase 4's constraint-driven layout walker. Every View has
 // two sizes: its *intrinsic* size (what the node would take if unconstrained)
 // and its *assigned* size (what its parent hands down after flex and
@@ -355,8 +362,8 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		// draw_text takes a baseline y — offset by ascent so the view's
 		// top edge aligns with `origin.y`, matching what view_size reports.
 		ascent := text_ascent(rr, vv.size, vv.font)
-		if rr.widgets != nil && vv.selectable && vv.id != 0 {
-			widget_record_rect(rr.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
+		if r.widgets != nil && vv.selectable && vv.id != 0 {
+			widget_record_rect(r.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
 		}
 		has_sel := vv.selectable && vv.sel_start != vv.sel_end
 		sel_lo := vv.sel_start if vv.sel_start <= vv.sel_end else vv.sel_end
@@ -463,8 +470,8 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		has_sel := vv.selectable && vv.sel_start != vv.sel_end
 		sel_lo := vv.sel_start if vv.sel_start <= vv.sel_end else vv.sel_end
 		sel_hi := vv.sel_end if vv.sel_end >= vv.sel_start else vv.sel_start
-		if rr.widgets != nil && vv.selectable && vv.id != 0 {
-			widget_record_rect(rr.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
+		if r.widgets != nil && vv.selectable && vv.id != 0 {
+			widget_record_rect(r.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
 		}
 		y := origin.y
 		for ln in vv.lines {
@@ -537,8 +544,8 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 			}
 			y += ln.height
 		}
-		if rr.widgets != nil && vv.id != 0 {
-			link_rects_stamp(rr.widgets, vv.id, link_rects[:])
+		if r.widgets != nil && vv.id != 0 {
+			link_rects_stamp(r.widgets, vv.id, link_rects[:])
 		}
 
 	case View_Stack:
@@ -565,8 +572,8 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		// Record the rendered rect so next frame's builder can hit-test
 		// against it. nil when the renderer is driven outside the App
 		// loop (e.g. the imperative 02_shapes example).
-		if rr.widgets != nil {
-			widget_record_rect(rr.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
+		if r.widgets != nil {
+			widget_record_rect(r.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
 		}
 
 		bg := vv.color
@@ -601,8 +608,8 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		pop_clip(r)
 
 	case View_Text_Input:
-		if rr.widgets != nil {
-			widget_record_rect(rr.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
+		if r.widgets != nil {
+			widget_record_rect(r.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
 		}
 
 		// Body: filled rect. Every input renders a 1-px hairline border so
@@ -847,8 +854,8 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		}
 
 	case View_Checkbox:
-		if rr.widgets != nil {
-			widget_record_rect(rr.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
+		if r.widgets != nil {
+			widget_record_rect(r.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
 		}
 
 		// Vertically center the box within the widget row so a taller
@@ -908,8 +915,8 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		}
 
 	case View_Radio:
-		if rr.widgets != nil {
-			widget_record_rect(rr.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
+		if r.widgets != nil {
+			widget_record_rect(r.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
 		}
 
 		box_y := origin.y + (size.y - vv.box_size) / 2
@@ -959,8 +966,8 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		}
 
 	case View_Toggle:
-		if rr.widgets != nil {
-			widget_record_rect(rr.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
+		if r.widgets != nil {
+			widget_record_rect(r.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
 		}
 
 		// Vertically center the track in the widget row — label can
@@ -1017,8 +1024,8 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		}
 
 	case View_Slider:
-		if rr.widgets != nil {
-			widget_record_rect(rr.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
+		if r.widgets != nil {
+			widget_record_rect(r.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
 		}
 
 		// Track runs centered vertically, with `thumb_r` left+right of
@@ -1129,8 +1136,8 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		vp_w := vv.size.x if vv.size.x > 0 else size.x
 		vp_h := vv.size.y if vv.size.y > 0 else size.y
 		vp := Rect{origin.x, origin.y, vp_w, vp_h}
-		if rr.widgets != nil {
-			widget_record_rect(rr.widgets, vv.id, vp)
+		if r.widgets != nil {
+			widget_record_rect(r.widgets, vv.id, vp)
 		}
 
 		// Scrollbar gutter reservation. The bar lives in the right 8 px
@@ -1179,11 +1186,11 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		// can leave the pre-clamp value well out of range; `content_h`
 		// lets next frame's builder reconstruct scrollbar geometry for
 		// hit-testing clicks without re-measuring the child tree.
-		if rr.widgets != nil {
-			st := rr.widgets.states[vv.id]
+		if r.widgets != nil {
+			st := r.widgets.states[vv.id]
 			st.scroll_y = off
 			st.content_h = child_h
-			rr.widgets.states[vv.id] = st
+			r.widgets.states[vv.id] = st
 		}
 
 		push_clip(r, vp)
@@ -1218,8 +1225,8 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		}
 
 	case View_Select:
-		if rr.widgets != nil {
-			widget_record_rect(rr.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
+		if r.widgets != nil {
+			widget_record_rect(r.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
 		}
 
 		bg := vv.color_bg
@@ -1293,24 +1300,24 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		switch vv.placement {
 		case .Below:
 			y = vv.anchor.y + vv.anchor.h + vv.offset.y
-			if y + cs.y > f32(rr.fb_size.y) && vv.anchor.y - cs.y >= 0 {
+			if y + cs.y > f32(r.frame_size.y) && vv.anchor.y - cs.y >= 0 {
 				y = vv.anchor.y - cs.y - vv.offset.y
 			}
 		case .Above:
 			y = vv.anchor.y - cs.y - vv.offset.y
-			if y < 0 && vv.anchor.y + vv.anchor.h + cs.y <= f32(rr.fb_size.y) {
+			if y < 0 && vv.anchor.y + vv.anchor.h + cs.y <= f32(r.frame_size.y) {
 				y = vv.anchor.y + vv.anchor.h + vv.offset.y
 			}
 		}
 		// Clamp horizontally so the overlay doesn't spill off screen —
 		// common when a dropdown sits near the right edge of the window.
-		if x + cs.x > f32(rr.fb_size.x) {x = f32(rr.fb_size.x) - cs.x}
+		if x + cs.x > f32(r.frame_size.x) {x = f32(r.frame_size.x) - cs.x}
 		if x < 0 {x = 0}
 
 		op := vv.opacity
 		if op == 0 {op = 1} 	// legacy call sites that don't set opacity
 		append(
-			&rr.overlays,
+			render_context_overlays(r),
 			Overlay_Entry {
 				origin = {x, y},
 				size = cs,
@@ -1325,8 +1332,8 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		// its actual rect. Stamp the widget record with (origin, size) —
 		// the builder hit-tests this for the next frame's hover.
 		render_view(r, vv.child^, origin, size)
-		if rr.widgets != nil {
-			widget_record_rect(rr.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
+		if r.widgets != nil {
+			widget_record_rect(r.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
 		}
 
 		// Bubble contents only get queued when the builder decided the
@@ -1366,10 +1373,10 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		// the framebuffer by render_overlays' own clamp logic.
 		bx := anchor.x + (anchor.w - bubble_w) / 2
 		by := anchor.y + anchor.h + 4
-		if by + bubble_h > f32(rr.fb_size.y) && anchor.y - bubble_h - 4 >= 0 {
+		if by + bubble_h > f32(r.frame_size.y) && anchor.y - bubble_h - 4 >= 0 {
 			by = anchor.y - bubble_h - 4
 		}
-		if bx + bubble_w > f32(rr.fb_size.x) {bx = f32(rr.fb_size.x) - bubble_w}
+		if bx + bubble_w > f32(r.frame_size.x) {bx = f32(r.frame_size.x) - bubble_w}
 		if bx < 0 {bx = 0}
 
 		children := make([]View, len(lines), context.temp_allocator)
@@ -1391,7 +1398,7 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 			children    = children,
 		}
 		append(
-			&rr.overlays,
+			render_context_overlays(r),
 			Overlay_Entry {
 				origin = {bx, by},
 				size = {bubble_w, bubble_h},
@@ -1406,8 +1413,8 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		// the zone just stamps the bounding rect so next frame's
 		// builder can hit-test clicks against it.
 		render_view(r, vv.child^, origin, size)
-		if rr.widgets != nil {
-			widget_record_rect(rr.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
+		if r.widgets != nil {
+			widget_record_rect(r.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
 		}
 
 	case View_Dialog:
@@ -1423,19 +1430,19 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		// dialog-open frame. Overlays queued LATER (e.g. a picker
 		// inside the dialog card) are not affected because they
 		// append after this point during render.
-		clear(&rr.overlays)
+		clear(render_context_overlays(r))
 
 		// Scrim spans the framebuffer. Enqueued first so the card,
 		// queued after, draws on top of it.
-		fb_w := f32(rr.fb_size.x)
-		fb_h := f32(rr.fb_size.y)
+		fb_w := f32(r.frame_size.x)
+		fb_h := f32(r.frame_size.y)
 		scrim_child := View_Rect {
 			size   = {fb_w, fb_h},
 			color  = vv.color_scrim,
 			radius = 0,
 		}
 		append(
-			&rr.overlays,
+			render_context_overlays(r),
 			Overlay_Entry{origin = {0, 0}, size = {fb_w, fb_h}, child = scrim_child, opacity = 1},
 		)
 
@@ -1459,9 +1466,9 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		// Stamp the card rect for next-frame focus trap + backdrop
 		// click detection. Widget_Store.modal_rect was cleared at the
 		// top of the frame; setting it here re-arms those systems.
-		if rr.widgets != nil {
-			rr.widgets.modal_rect = Rect{card_x, card_y, card_w, card_h}
-			widget_record_rect(rr.widgets, vv.id, Rect{card_x, card_y, card_w, card_h})
+		if r.widgets != nil {
+			r.widgets.modal_rect = Rect{card_x, card_y, card_w, card_h}
+			widget_record_rect(r.widgets, vv.id, Rect{card_x, card_y, card_w, card_h})
 		}
 
 		// Compose the card: a Stack with bg + radius wrapping the
@@ -1482,7 +1489,7 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 			children    = content_children,
 		}
 		append(
-			&rr.overlays,
+			render_context_overlays(r),
 			Overlay_Entry {
 				origin = {card_x, card_y},
 				size = {card_w, card_h},
@@ -1517,8 +1524,8 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 	case View_Split:
 		// Record the container rect so next frame's builder can hit-
 		// test the divider and clamp drags against the main-axis size.
-		if rr.widgets != nil {
-			widget_record_rect(rr.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
+		if r.widgets != nil {
+			widget_record_rect(r.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
 		}
 
 		// Clamp first_size to the visible range so the second pane is
@@ -1578,8 +1585,8 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		}
 
 	case View_Link:
-		if rr.widgets != nil {
-			widget_record_rect(rr.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
+		if r.widgets != nil {
+			widget_record_rect(r.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
 		}
 
 		col := vv.color
@@ -1621,8 +1628,8 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 	case View_Toast:
 		if !vv.visible || vv.child == nil {return}
 
-		fb_w := f32(rr.fb_size.x)
-		fb_h := f32(rr.fb_size.y)
+		fb_w := f32(r.frame_size.x)
+		fb_h := f32(r.frame_size.y)
 
 		cs := view_size(r, vv.child^)
 		// Clamp to the framebuffer minus twice the margin so a too-wide
@@ -1650,7 +1657,7 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		}
 
 		append(
-			&rr.overlays,
+			render_context_overlays(r),
 			Overlay_Entry {
 				origin = {x, y},
 				size = {cw, ch},
@@ -1680,8 +1687,8 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		bounds := Rect{origin.x, origin.y, w, h}
 		// Record this frame's rect so next frame's view can hit-test
 		// against it via widget_last_rect(ctx, id).
-		if rr.widgets != nil && vv.id != 0 {
-			widget_record_rect(rr.widgets, vv.id, bounds)
+		if r.widgets != nil && vv.id != 0 {
+			widget_record_rect(r.widgets, vv.id, bounds)
 		}
 		// Scissor the callback's draws to the canvas rect. Without this
 		// a runaway `draw_rect` could paint over neighbour widgets.
@@ -1699,10 +1706,10 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 // that enqueue further overlays (nested sub-menus, tooltips inside a
 // popover) are picked up in the same frame without extra plumbing.
 render_overlays :: proc(r: ^Render_Context) {
-	rr := render_context_renderer(r)
+	overlays := render_context_overlays(r)
 	i := 0
-	for i < len(rr.overlays) {
-		e := rr.overlays[i]
+	for i < len(overlays^) {
+		e := overlays[i]
 
 		// Opacity fade: popover builders animate `anim_t` toward 1 on
 		// open and 0 on close; that value is piped here via
@@ -1720,8 +1727,9 @@ render_overlays :: proc(r: ^Render_Context) {
 			i += 1
 			continue
 		}
-		saved_alpha := rr.alpha_multiplier
-		rr.alpha_multiplier = saved_alpha * opacity
+		saved_alpha := r.alpha_multiplier
+		r.alpha_multiplier = saved_alpha * opacity
+		backend_set_alpha(r, r.alpha_multiplier)
 
 		// Soft drop shadow beneath the popover card. shadow_radius == 0
 		// opts out (used by dialog scrims and other full-screen entries
@@ -1745,11 +1753,12 @@ render_overlays :: proc(r: ^Render_Context) {
 		// z-correctly — without it, widgets in the main tree whose rect
 		// happens to overlap an open modal card would still receive clicks
 		// through the scrim.
-		if rr.widgets != nil {rr.widgets.inside_overlay_depth += 1}
+		if r.widgets != nil {r.widgets.inside_overlay_depth += 1}
 		render_view(r, e.child, e.origin, e.size)
-		if rr.widgets != nil {rr.widgets.inside_overlay_depth -= 1}
+		if r.widgets != nil {r.widgets.inside_overlay_depth -= 1}
 
-		rr.alpha_multiplier = saved_alpha
+		r.alpha_multiplier = saved_alpha
+		backend_set_alpha(r, r.alpha_multiplier)
 		i += 1
 	}
 }

@@ -34,12 +34,26 @@ Backend :: struct {
 }
 
 Render_Context :: struct {
-	backend: ^Backend,
+	backend:          ^Backend,
+	frame_size:       [2]u32,
+	widgets:          ^Widget_Store,
+	overlays:         ^[dynamic]Overlay_Entry,
+	alpha_multiplier: f32,
 }
 
 render_context_from_backend :: proc(backend: ^Backend) -> Render_Context {
 	assert(backend != nil, "render_context_from_backend requires backend")
-	return Render_Context{backend = backend}
+	return Render_Context{backend = backend, alpha_multiplier = 1}
+}
+
+renderer_render_context :: proc(backend: ^Backend, r: ^Renderer) -> Render_Context {
+	assert(r != nil, "renderer_render_context requires renderer")
+	rc := render_context_from_backend(backend)
+	rc.frame_size = r.fb_size
+	rc.widgets = r.widgets
+	rc.overlays = &r.overlays
+	rc.alpha_multiplier = r.alpha_multiplier
+	return rc
 }
 
 Backend_Frame :: struct {

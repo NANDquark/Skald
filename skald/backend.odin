@@ -163,7 +163,8 @@ renderer_backend :: proc(r: ^Renderer) -> Backend {
 	assert(r != nil, "renderer_backend requires renderer")
 	return Backend {
 		state = r,
-		capabilities = {.Clipboard, .Native_File_Dialogs, .Text_Input_Mode, .Multi_Window},
+		// Advertise service capabilities only when their backend groups are wired.
+		capabilities = {},
 		draw = Backend_Draw {
 			rect = renderer_backend_rect,
 			gradient_rect = renderer_backend_gradient_rect,

@@ -77,6 +77,81 @@ render_context_can_hold_existing_renderer_pointer :: proc(t: ^testing.T) {
 }
 
 @(test)
+renderer_backend_advertises_only_wired_capabilities :: proc(t: ^testing.T) {
+	r: Renderer
+	backend := renderer_backend(&r)
+
+	testing.expect_value(t, backend.capabilities, Backend_Capabilities{})
+}
+
+@(test)
+renderer_backend_set_alpha_updates_renderer :: proc(t: ^testing.T) {
+	r: Renderer
+	target: Window_Target
+	r.cur = &target
+	backend := renderer_backend(&r)
+
+	backend.draw.set_alpha(backend.state, 0.35)
+
+	testing.expect_value(t, r.alpha_multiplier, f32(0.35))
+}
+
+@(test)
+render_context_draw_facades_append_to_renderer_batch :: proc(t: ^testing.T) {
+	r: Renderer
+	target: Window_Target
+	r.cur = &target
+	defer delete(target.batch.vertices)
+	defer delete(target.batch.indices)
+
+	backend := renderer_backend(&r)
+	rc := render_context_from_backend(&backend)
+
+	draw_rect(&rc, {x = 10, y = 20, w = 30, h = 40}, rgb(0xFF0000), 4)
+	draw_gradient_rect(
+		&rc,
+		{x = 0, y = 0, w = 8, h = 8},
+		rgb(0xFFFFFF),
+		rgb(0xFF0000),
+		rgb(0x000000),
+		rgb(0x0000FF),
+	)
+	draw_shadow(&rc, {x = 5, y = 5, w = 10, h = 10}, 2, 4, rgba(0x00000080))
+
+	testing.expect_value(t, len(target.batch.vertices), 12)
+	testing.expect_value(t, len(target.batch.indices), 18)
+}
+
+@(test)
+render_context_clip_facades_update_renderer_batch :: proc(t: ^testing.T) {
+	r: Renderer
+	target: Window_Target
+	r.cur = &target
+	target.fb_size = {200, 100}
+	target.fb_size_px = {200, 100}
+	target.scale = 1
+	defer delete(target.batch.clip_stack)
+	defer delete(target.batch.ranges)
+
+	backend := renderer_backend(&r)
+	rc := render_context_from_backend(&backend)
+
+	push_clip(&rc, {x = 10, y = 20, w = 30, h = 40})
+
+	if !testing.expect_value(t, len(target.batch.clip_stack), 1) {
+		return
+	}
+	testing.expect_value(t, target.batch.clip_stack[0], Rect{10, 20, 30, 40})
+	testing.expect_value(t, len(target.batch.ranges), 1)
+
+	pop_clip(&rc)
+
+	testing.expect_value(t, len(target.batch.clip_stack), 0)
+	testing.expect_value(t, len(target.batch.ranges), 1)
+	testing.expect_value(t, target.batch.ranges[0].clip, [4]u32{0, 0, 200, 100})
+}
+
+@(test)
 capture_mouse_when_pointer_over_widget :: proc(t: ^testing.T) {
 	input := Input {
 		mouse_pos = {12, 16},

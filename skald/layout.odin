@@ -3,59 +3,11 @@ package skald
 import "core:math"
 import "core:strings"
 
-view_height_for_width :: proc {
-	render_context_view_height_for_width,
-	renderer_view_height_for_width,
-}
-
-view_size :: proc {
-	render_context_view_size,
-	renderer_view_size,
-}
-
-render_view :: proc {
-	render_context_render_view,
-	renderer_render_view,
-}
-
-render_overlays :: proc {
-	render_context_render_overlays,
-	renderer_render_overlays,
-}
-
 @(private)
 render_context_renderer :: proc(r: ^Render_Context) -> ^Renderer {
 	assert(r != nil, "layout render requires render context")
 	assert(r.backend != nil, "layout render requires backend")
 	return (^Renderer)(r.backend.state)
-}
-
-@(private)
-renderer_view_height_for_width :: proc(r: ^Renderer, v: View, width: f32) -> f32 {
-	backend := renderer_backend(r)
-	rc := render_context_from_backend(&backend)
-	return render_context_view_height_for_width(&rc, v, width)
-}
-
-@(private)
-renderer_view_size :: proc(r: ^Renderer, v: View) -> [2]f32 {
-	backend := renderer_backend(r)
-	rc := render_context_from_backend(&backend)
-	return render_context_view_size(&rc, v)
-}
-
-@(private)
-renderer_render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
-	backend := renderer_backend(r)
-	rc := render_context_from_backend(&backend)
-	render_context_render_view(&rc, v, origin, size)
-}
-
-@(private)
-renderer_render_overlays :: proc(r: ^Renderer) {
-	backend := renderer_backend(r)
-	rc := render_context_from_backend(&backend)
-	render_context_render_overlays(&rc)
 }
 
 // layout.odin is Phase 4's constraint-driven layout walker. Every View has
@@ -86,7 +38,7 @@ renderer_render_overlays :: proc(r: ^Renderer) {
 // inside a sub-column would render its real wrapped height but the
 // sub-column would only have been allocated single-line height,
 // causing the wrap_row to overflow into the next sibling.
-render_context_view_height_for_width :: proc(r: ^Render_Context, v: View, width: f32) -> f32 {
+view_height_for_width :: proc(r: ^Render_Context, v: View, width: f32) -> f32 {
 	#partial switch vv in v {
 	case View_Wrap_Row:
 		w := vv.width if vv.width > 0 else width
@@ -132,7 +84,7 @@ render_context_view_height_for_width :: proc(r: ^Render_Context, v: View, width:
 // measured against the renderer's fontstash context; stacks recurse to
 // aggregate children. `View_Flex` reports its child's intrinsic — weights
 // only matter once a parent stack has leftover space to distribute.
-render_context_view_size :: proc(r: ^Render_Context, v: View) -> [2]f32 {
+view_size :: proc(r: ^Render_Context, v: View) -> [2]f32 {
 	rr := render_context_renderer(r)
 	switch vv in v {
 	case View_Rect:
@@ -374,7 +326,7 @@ render_context_view_size :: proc(r: ^Render_Context, v: View) -> [2]f32 {
 // parent (equals the view's intrinsic size for leaf nodes inside a
 // Main_Align.Start stack without flex siblings — but differs for flex
 // children and Stretch cross alignment).
-render_context_render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
+render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 	rr := render_context_renderer(r)
 	switch vv in v {
 	case View_Rect:
@@ -1746,7 +1698,7 @@ render_context_render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, 
 // Processing uses an index cursor rather than a range-for so overlays
 // that enqueue further overlays (nested sub-menus, tooltips inside a
 // popover) are picked up in the same frame without extra plumbing.
-render_context_render_overlays :: proc(r: ^Render_Context) {
+render_overlays :: proc(r: ^Render_Context) {
 	rr := render_context_renderer(r)
 	i := 0
 	for i < len(rr.overlays) {

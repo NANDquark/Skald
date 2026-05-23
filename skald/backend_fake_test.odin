@@ -69,13 +69,21 @@ backend_context_records_draws :: proc(t: ^testing.T) {
 }
 
 @(test)
+render_context_can_hold_existing_renderer_pointer :: proc(t: ^testing.T) {
+	r: Renderer
+	backend := renderer_backend(&r)
+	rc := render_context_from_backend(&backend)
+	testing.expect(t, rc.backend.state == &r)
+}
+
+@(test)
 capture_mouse_when_pointer_over_widget :: proc(t: ^testing.T) {
-	input := Input{mouse_pos = {12, 16}}
+	input := Input {
+		mouse_pos = {12, 16},
+	}
 	capture := input_capture_from_frame(
 		input,
-		Capture_Frame_State {
-			pointer_regions = []Rect{{x = 10, y = 10, w = 80, h = 20}},
-		},
+		Capture_Frame_State{pointer_regions = []Rect{{x = 10, y = 10, w = 80, h = 20}}},
 	)
 
 	testing.expect_value(t, capture.pointer_over_ui, true)
@@ -85,10 +93,7 @@ capture_mouse_when_pointer_over_widget :: proc(t: ^testing.T) {
 
 @(test)
 capture_keyboard_when_text_focused :: proc(t: ^testing.T) {
-	capture := input_capture_from_frame(
-		Input{},
-		Capture_Frame_State{wants_text_input = true},
-	)
+	capture := input_capture_from_frame(Input{}, Capture_Frame_State{wants_text_input = true})
 
 	testing.expect_value(t, capture.keyboard, true)
 	testing.expect_value(t, capture.text, true)

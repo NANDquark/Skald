@@ -1,6 +1,6 @@
 package skald
 
-// push_clip pushes a pixel-aligned clip rectangle onto the clip stack. All
+// renderer_push_clip pushes a pixel-aligned clip rectangle onto the clip stack. All
 // subsequent draw calls (draw_rect, draw_text, …) are scissored to the
 // intersection of every rect currently on the stack. Pop the rect with
 // `pop_clip` to restore the previous clip.
@@ -11,7 +11,7 @@ package skald
 //
 // The clip is expressed in pixel coordinates with origin top-left, matching
 // the coordinate system used by `draw_rect` and `draw_text`.
-push_clip :: proc(r: ^Renderer, rect: Rect) {
+renderer_push_clip :: proc(r: ^Renderer, rect: Rect) {
 	new_rect: Rect
 	if len(r.batch.clip_stack) == 0 {
 		new_rect = rect
@@ -22,10 +22,19 @@ push_clip :: proc(r: ^Renderer, rect: Rect) {
 	clip_open_range(r, new_rect)
 }
 
-// pop_clip pops the most recent `push_clip`. If that empties the stack the
+render_context_push_clip :: proc(r: ^Render_Context, rect: Rect) {
+	backend_push_clip(r, rect)
+}
+
+push_clip :: proc {
+	render_context_push_clip,
+	renderer_push_clip,
+}
+
+// renderer_pop_clip pops the most recent `renderer_push_clip`. If that empties the stack the
 // scissor reverts to the full framebuffer.
-pop_clip :: proc(r: ^Renderer) {
-	if len(r.batch.clip_stack) == 0 { return }
+renderer_pop_clip :: proc(r: ^Renderer) {
+	if len(r.batch.clip_stack) == 0 {return}
 	pop(&r.batch.clip_stack)
 
 	new_rect: Rect
@@ -35,6 +44,15 @@ pop_clip :: proc(r: ^Renderer) {
 		new_rect = r.batch.clip_stack[len(r.batch.clip_stack) - 1]
 	}
 	clip_open_range(r, new_rect)
+}
+
+render_context_pop_clip :: proc(r: ^Render_Context) {
+	backend_pop_clip(r)
+}
+
+pop_clip :: proc {
+	render_context_pop_clip,
+	renderer_pop_clip,
 }
 
 // clip_open_range starts a new Batch_Range with the given clip rect. If the
@@ -49,10 +67,7 @@ clip_open_range :: proc(r: ^Renderer, rect: Rect) {
 		r.batch.ranges[n - 1].clip = scissor
 		return
 	}
-	append(&r.batch.ranges, Batch_Range{
-		clip        = scissor,
-		index_start = u32(len(r.batch.indices)),
-	})
+	append(&r.batch.ranges, Batch_Range{clip = scissor, index_start = u32(len(r.batch.indices))})
 }
 
 @(private)

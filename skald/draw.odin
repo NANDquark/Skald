@@ -61,7 +61,7 @@ Batch :: struct {
 	clip_stack: [dynamic]Rect,
 }
 
-// draw_rect queues a rectangle for this frame. radius is the corner radius
+// renderer_draw_rect queues a rectangle for this frame. radius is the corner radius
 // in pixels; radius=0 produces a sharp rectangle (still anti-aliased on
 // the outer edge for free, courtesy of the SDF fragment shader).
 //
@@ -71,9 +71,9 @@ Batch :: struct {
 //
 // Calls are cheap — they append to CPU-side buffers. The actual GPU draw
 // happens once in `frame_end`.
-draw_rect :: proc(r: ^Renderer, rect: Rect, color: Color, radius: f32 = 0) {
-	center    := [2]f32{rect.x + rect.w * 0.5, rect.y + rect.h * 0.5}
-	half_size := [2]f32{rect.w * 0.5,          rect.h * 0.5}
+renderer_draw_rect :: proc(r: ^Renderer, rect: Rect, color: Color, radius: f32 = 0) {
+	center := [2]f32{rect.x + rect.w * 0.5, rect.y + rect.h * 0.5}
+	half_size := [2]f32{rect.w * 0.5, rect.h * 0.5}
 	// Clamp radius so it never exceeds the shorter half-extent — otherwise
 	// the SDF degenerates into a pill or worse.
 	rr := min(radius, min(half_size.x, half_size.y))
@@ -81,20 +81,31 @@ draw_rect :: proc(r: ^Renderer, rect: Rect, color: Color, radius: f32 = 0) {
 	col := color
 	col[3] *= r.alpha_multiplier
 	base := u32(len(r.batch.vertices))
-	v := Vertex{color = col, center = center, half_size = half_size, radius = rr}
+	v := Vertex {
+		color     = col,
+		center    = center,
+		half_size = half_size,
+		radius    = rr,
+	}
 
-	v.pos = {rect.x,          rect.y         }; append(&r.batch.vertices, v)
-	v.pos = {rect.x + rect.w, rect.y         }; append(&r.batch.vertices, v)
+	v.pos = {rect.x, rect.y}; append(&r.batch.vertices, v)
+	v.pos = {rect.x + rect.w, rect.y}; append(&r.batch.vertices, v)
 	v.pos = {rect.x + rect.w, rect.y + rect.h}; append(&r.batch.vertices, v)
-	v.pos = {rect.x,          rect.y + rect.h}; append(&r.batch.vertices, v)
+	v.pos = {rect.x, rect.y + rect.h}; append(&r.batch.vertices, v)
 
-	append(&r.batch.indices,
-		base + 0, base + 1, base + 2,
-		base + 0, base + 2, base + 3,
-	)
+	append(&r.batch.indices, base + 0, base + 1, base + 2, base + 0, base + 2, base + 3)
 }
 
-// draw_shadow queues a soft SDF shadow for `rect`. The shadow extends
+render_context_draw_rect :: proc(r: ^Render_Context, rect: Rect, color: Color, radius: f32 = 0) {
+	backend_draw_rect(r, rect, color, radius)
+}
+
+draw_rect :: proc {
+	render_context_draw_rect,
+	renderer_draw_rect,
+}
+
+// renderer_draw_shadow queues a soft SDF shadow for `rect`. The shadow extends
 // `blur` pixels beyond the rect in every direction with a quadratic
 // falloff, starting at full `color.a` at the rect edge and fading to 0
 // at blur distance. `radius` should match the corner radius of the
@@ -104,35 +115,35 @@ draw_rect :: proc(r: ^Renderer, rect: Rect, color: Color, radius: f32 = 0) {
 // — dropdowns, date / time / color pickers, menus, dialogs — above the
 // page. Callers can also invoke it directly for bespoke depth effects;
 // it's cheap (one quad) and batches with the rest of the frame.
-draw_shadow :: proc(
-	r:      ^Renderer,
-	rect:   Rect,
+renderer_draw_shadow :: proc(
+	r: ^Renderer,
+	rect: Rect,
 	radius: f32,
-	blur:   f32,
-	color:  Color,
+	blur: f32,
+	color: Color,
 	offset: [2]f32 = {0, 4},
 ) {
-	if blur <= 0 { return }
+	if blur <= 0 {return}
 	// Offset the shadow source rect — positive y pushes the shadow down,
 	// matching light-from-above convention.
 	sx := rect.x + offset.x
 	sy := rect.y + offset.y
-	center    := [2]f32{sx + rect.w * 0.5, sy + rect.h * 0.5}
-	half_size := [2]f32{rect.w * 0.5,       rect.h * 0.5}
-	rr        := min(radius, min(half_size.x, half_size.y))
+	center := [2]f32{sx + rect.w * 0.5, sy + rect.h * 0.5}
+	half_size := [2]f32{rect.w * 0.5, rect.h * 0.5}
+	rr := min(radius, min(half_size.x, half_size.y))
 
 	// The quad itself must extend by `blur` in each direction so the
 	// fragment shader has room to fade from opaque (inside the source
 	// rect) to zero (at the blur edge).
 	qx := sx - blur
 	qy := sy - blur
-	qw := rect.w + 2*blur
-	qh := rect.h + 2*blur
+	qw := rect.w + 2 * blur
+	qh := rect.h + 2 * blur
 
 	col := color
 	col[3] *= r.alpha_multiplier
 	base := u32(len(r.batch.vertices))
-	v := Vertex{
+	v := Vertex {
 		color     = col,
 		center    = center,
 		half_size = half_size,
@@ -140,32 +151,45 @@ draw_shadow :: proc(
 		kind      = 4,
 		uv        = {blur, 0},
 	}
-	v.pos = {qx,      qy     }; append(&r.batch.vertices, v)
-	v.pos = {qx + qw, qy     }; append(&r.batch.vertices, v)
+	v.pos = {qx, qy}; append(&r.batch.vertices, v)
+	v.pos = {qx + qw, qy}; append(&r.batch.vertices, v)
 	v.pos = {qx + qw, qy + qh}; append(&r.batch.vertices, v)
-	v.pos = {qx,      qy + qh}; append(&r.batch.vertices, v)
+	v.pos = {qx, qy + qh}; append(&r.batch.vertices, v)
 
-	append(&r.batch.indices,
-		base + 0, base + 1, base + 2,
-		base + 0, base + 2, base + 3,
-	)
+	append(&r.batch.indices, base + 0, base + 1, base + 2, base + 0, base + 2, base + 3)
 }
 
-// draw_gradient_rect queues a rectangle whose four corners carry independent
+render_context_draw_shadow :: proc(
+	r: ^Render_Context,
+	rect: Rect,
+	radius: f32,
+	blur: f32,
+	color: Color,
+	offset: [2]f32 = {0, 4},
+) {
+	backend_draw_shadow(r, rect, radius, blur, color, offset)
+}
+
+draw_shadow :: proc {
+	render_context_draw_shadow,
+	renderer_draw_shadow,
+}
+
+// renderer_draw_gradient_rect queues a rectangle whose four corners carry independent
 // colors — the fragment shader's per-vertex color interpolation gives us a
 // bilinear gradient for free. Useful for the color picker's saturation/value
 // square (TL=white, TR=hue, BL=BR=black) and hue strip segments.
 //
 // Corner order: top-left, top-right, bottom-right, bottom-left. Same SDF
-// path as `draw_rect`, so rounded corners and edge AA still work.
-draw_gradient_rect :: proc(
-	r:      ^Renderer,
-	rect:   Rect,
+// path as `renderer_draw_rect`, so rounded corners and edge AA still work.
+renderer_draw_gradient_rect :: proc(
+	r: ^Renderer,
+	rect: Rect,
 	c_tl, c_tr, c_br, c_bl: Color,
 	radius: f32 = 0,
 ) {
-	center    := [2]f32{rect.x + rect.w * 0.5, rect.y + rect.h * 0.5}
-	half_size := [2]f32{rect.w * 0.5,          rect.h * 0.5}
+	center := [2]f32{rect.x + rect.w * 0.5, rect.y + rect.h * 0.5}
+	half_size := [2]f32{rect.w * 0.5, rect.h * 0.5}
 	rr := min(radius, min(half_size.x, half_size.y))
 
 	tl := c_tl; tl[3] *= r.alpha_multiplier
@@ -173,17 +197,32 @@ draw_gradient_rect :: proc(
 	br := c_br; br[3] *= r.alpha_multiplier
 	bl := c_bl; bl[3] *= r.alpha_multiplier
 	base := u32(len(r.batch.vertices))
-	v := Vertex{center = center, half_size = half_size, radius = rr}
+	v := Vertex {
+		center    = center,
+		half_size = half_size,
+		radius    = rr,
+	}
 
-	v.pos = {rect.x,          rect.y         }; v.color = tl; append(&r.batch.vertices, v)
-	v.pos = {rect.x + rect.w, rect.y         }; v.color = tr; append(&r.batch.vertices, v)
+	v.pos = {rect.x, rect.y}; v.color = tl; append(&r.batch.vertices, v)
+	v.pos = {rect.x + rect.w, rect.y}; v.color = tr; append(&r.batch.vertices, v)
 	v.pos = {rect.x + rect.w, rect.y + rect.h}; v.color = br; append(&r.batch.vertices, v)
-	v.pos = {rect.x,          rect.y + rect.h}; v.color = bl; append(&r.batch.vertices, v)
+	v.pos = {rect.x, rect.y + rect.h}; v.color = bl; append(&r.batch.vertices, v)
 
-	append(&r.batch.indices,
-		base + 0, base + 1, base + 2,
-		base + 0, base + 2, base + 3,
-	)
+	append(&r.batch.indices, base + 0, base + 1, base + 2, base + 0, base + 2, base + 3)
+}
+
+render_context_draw_gradient_rect :: proc(
+	r: ^Render_Context,
+	rect: Rect,
+	c_tl, c_tr, c_br, c_bl: Color,
+	radius: f32 = 0,
+) {
+	backend_draw_gradient_rect(r, rect, c_tl, c_tr, c_br, c_bl, radius)
+}
+
+draw_gradient_rect :: proc {
+	render_context_draw_gradient_rect,
+	renderer_draw_gradient_rect,
 }
 
 // batch_push_glyph appends a textured quad sampling the glyph atlas. Used
@@ -194,17 +233,17 @@ batch_push_glyph :: proc(r: ^Renderer, x0, y0, x1, y1, s0, t0, s1, t1: f32, colo
 	col := color
 	col[3] *= r.alpha_multiplier
 	base := u32(len(r.batch.vertices))
-	v := Vertex{color = col, kind = 1}
+	v := Vertex {
+		color = col,
+		kind  = 1,
+	}
 
 	v.pos = {x0, y0}; v.uv = {s0, t0}; append(&r.batch.vertices, v)
 	v.pos = {x1, y0}; v.uv = {s1, t0}; append(&r.batch.vertices, v)
 	v.pos = {x1, y1}; v.uv = {s1, t1}; append(&r.batch.vertices, v)
 	v.pos = {x0, y1}; v.uv = {s0, t1}; append(&r.batch.vertices, v)
 
-	append(&r.batch.indices,
-		base + 0, base + 1, base + 2,
-		base + 0, base + 2, base + 3,
-	)
+	append(&r.batch.indices, base + 0, base + 1, base + 2, base + 0, base + 2, base + 3)
 }
 
 // batch_push_glyph_paged is the multi-page variant of `batch_push_glyph`,
@@ -215,7 +254,12 @@ batch_push_glyph :: proc(r: ^Renderer, x0, y0, x1, y1, s0, t0, s1, t1: f32, colo
 // inherit the page descriptor. Same pattern as `batch_push_image`,
 // but emits kind=1 (R8 atlas with tint = colour) instead of kind=2.
 @(private)
-batch_push_glyph_paged :: proc(r: ^Renderer, bind_group: vk.DescriptorSet, x0, y0, x1, y1, s0, t0, s1, t1: f32, color: Color) {
+batch_push_glyph_paged :: proc(
+	r: ^Renderer,
+	bind_group: vk.DescriptorSet,
+	x0, y0, x1, y1, s0, t0, s1, t1: f32,
+	color: Color,
+) {
 	current_clip: Rect
 	if len(r.batch.clip_stack) > 0 {
 		current_clip = r.batch.clip_stack[len(r.batch.clip_stack) - 1]
@@ -229,37 +273,37 @@ batch_push_glyph_paged :: proc(r: ^Renderer, bind_group: vk.DescriptorSet, x0, y
 	// skip a zero-count range.
 	n := len(r.batch.ranges)
 	if n > 0 && r.batch.ranges[n - 1].index_start == u32(len(r.batch.indices)) {
-		r.batch.ranges[n - 1].clip       = scissor
+		r.batch.ranges[n - 1].clip = scissor
 		r.batch.ranges[n - 1].bind_group = bind_group
 	} else {
-		append(&r.batch.ranges, Batch_Range{
-			clip        = scissor,
-			index_start = u32(len(r.batch.indices)),
-			bind_group  = bind_group,
-		})
+		append(
+			&r.batch.ranges,
+			Batch_Range {
+				clip = scissor,
+				index_start = u32(len(r.batch.indices)),
+				bind_group = bind_group,
+			},
+		)
 	}
 
 	col := color
 	col[3] *= r.alpha_multiplier
 	base := u32(len(r.batch.vertices))
-	v := Vertex{color = col, kind = 1}
+	v := Vertex {
+		color = col,
+		kind  = 1,
+	}
 
 	v.pos = {x0, y0}; v.uv = {s0, t0}; append(&r.batch.vertices, v)
 	v.pos = {x1, y0}; v.uv = {s1, t0}; append(&r.batch.vertices, v)
 	v.pos = {x1, y1}; v.uv = {s1, t1}; append(&r.batch.vertices, v)
 	v.pos = {x0, y1}; v.uv = {s0, t1}; append(&r.batch.vertices, v)
 
-	append(&r.batch.indices,
-		base + 0, base + 1, base + 2,
-		base + 0, base + 2, base + 3,
-	)
+	append(&r.batch.indices, base + 0, base + 1, base + 2, base + 0, base + 2, base + 3)
 
 	// Re-open a default-bind-group range so subsequent shape/text
 	// draws don't inherit the page-specific descriptor.
-	append(&r.batch.ranges, Batch_Range{
-		clip        = scissor,
-		index_start = u32(len(r.batch.indices)),
-	})
+	append(&r.batch.ranges, Batch_Range{clip = scissor, index_start = u32(len(r.batch.indices))})
 }
 
 // batch_push_image appends a textured RGBA quad that samples from the
@@ -272,11 +316,11 @@ batch_push_glyph_paged :: proc(r: ^Renderer, bind_group: vk.DescriptorSet, x0, y
 // modulates the sampled color — pass `{1, 1, 1, 1}` for no tint.
 @(private)
 batch_push_image :: proc(
-	r:         ^Renderer,
+	r: ^Renderer,
 	bind_group: vk.DescriptorSet,
-	pos:        Rect,
-	uv:         [4]f32,
-	tint:       Color,
+	pos: Rect,
+	uv: [4]f32,
+	tint: Color,
 ) {
 	// Current clip intersection. Mirrors clip_open_range's behavior so the
 	// image honors any active push_clip without us tracking clip state here.
@@ -293,37 +337,37 @@ batch_push_image :: proc(
 	// a zero-count range for frame_end to skip.
 	n := len(r.batch.ranges)
 	if n > 0 && r.batch.ranges[n - 1].index_start == u32(len(r.batch.indices)) {
-		r.batch.ranges[n - 1].clip       = scissor
+		r.batch.ranges[n - 1].clip = scissor
 		r.batch.ranges[n - 1].bind_group = bind_group
 	} else {
-		append(&r.batch.ranges, Batch_Range{
-			clip        = scissor,
-			index_start = u32(len(r.batch.indices)),
-			bind_group  = bind_group,
-		})
+		append(
+			&r.batch.ranges,
+			Batch_Range {
+				clip = scissor,
+				index_start = u32(len(r.batch.indices)),
+				bind_group = bind_group,
+			},
+		)
 	}
 
 	t := tint
 	t[3] *= r.alpha_multiplier
 	base := u32(len(r.batch.vertices))
-	v := Vertex{color = t, kind = 2}
-	v.pos = {pos.x,         pos.y        }; v.uv = {uv[0], uv[1]}; append(&r.batch.vertices, v)
-	v.pos = {pos.x + pos.w, pos.y        }; v.uv = {uv[2], uv[1]}; append(&r.batch.vertices, v)
+	v := Vertex {
+		color = t,
+		kind  = 2,
+	}
+	v.pos = {pos.x, pos.y}; v.uv = {uv[0], uv[1]}; append(&r.batch.vertices, v)
+	v.pos = {pos.x + pos.w, pos.y}; v.uv = {uv[2], uv[1]}; append(&r.batch.vertices, v)
 	v.pos = {pos.x + pos.w, pos.y + pos.h}; v.uv = {uv[2], uv[3]}; append(&r.batch.vertices, v)
-	v.pos = {pos.x,         pos.y + pos.h}; v.uv = {uv[0], uv[3]}; append(&r.batch.vertices, v)
+	v.pos = {pos.x, pos.y + pos.h}; v.uv = {uv[0], uv[3]}; append(&r.batch.vertices, v)
 
-	append(&r.batch.indices,
-		base + 0, base + 1, base + 2,
-		base + 0, base + 2, base + 3,
-	)
+	append(&r.batch.indices, base + 0, base + 1, base + 2, base + 0, base + 2, base + 3)
 
 	// Re-open a default-bind-group range so subsequent shape/text draws
 	// don't inherit the image's bind group. Inherits the same clip —
 	// the caller hasn't changed it.
-	append(&r.batch.ranges, Batch_Range{
-		clip        = scissor,
-		index_start = u32(len(r.batch.indices)),
-	})
+	append(&r.batch.ranges, Batch_Range{clip = scissor, index_start = u32(len(r.batch.indices))})
 }
 
 // draw_triangles queues a list of triangles as solid-color geometry
@@ -337,10 +381,13 @@ batch_push_image :: proc(
 // higher-level helper unless you need bespoke tessellation.
 draw_triangles :: proc(r: ^Renderer, verts: [][2]f32, color: Color) {
 	n := len(verts)
-	if n < 3 { return }
+	if n < 3 {return}
 
 	base := u32(len(r.batch.vertices))
-	v := Vertex{color = color, kind = 3}
+	v := Vertex {
+		color = color,
+		kind  = 3,
+	}
 	for p in verts {
 		v.pos = p
 		append(&r.batch.vertices, v)
@@ -366,10 +413,13 @@ draw_triangles :: proc(r: ^Renderer, verts: [][2]f32, color: Color) {
 // the ribbon math for you.
 draw_triangle_strip :: proc(r: ^Renderer, verts: [][2]f32, color: Color) {
 	n := len(verts)
-	if n < 3 { return }
+	if n < 3 {return}
 
 	base := u32(len(r.batch.vertices))
-	v := Vertex{color = color, kind = 3}
+	v := Vertex {
+		color = color,
+		kind  = 3,
+	}
 	for p in verts {
 		v.pos = p
 		append(&r.batch.vertices, v)
@@ -407,10 +457,9 @@ Stroke_Sample :: struct {
 // Allocates on `context.temp_allocator` — the ribbon vertices live as
 // long as the frame arena, which matches the render pass's lifetime
 // exactly.
-draw_stroke :: proc(r: ^Renderer, samples: []Stroke_Sample,
-                    base_width: f32, color: Color) {
+draw_stroke :: proc(r: ^Renderer, samples: []Stroke_Sample, base_width: f32, color: Color) {
 	n := len(samples)
-	if n < 2 || base_width <= 0 { return }
+	if n < 2 || base_width <= 0 {return}
 
 	verts := make([dynamic][2]f32, 0, n * 2, context.temp_allocator)
 
@@ -419,50 +468,50 @@ draw_stroke :: proc(r: ^Renderer, samples: []Stroke_Sample,
 	// we re-use the previous perp instead of falling back to a fixed
 	// axis — that's what was causing the ribbon to flip 90° at low
 	// pen velocity and produce horn-shaped spikes in the render.
-	prev_px:  f32 = 0
-	prev_py:  f32 = -1 // points "up" in a y-down coord space
+	prev_px: f32 = 0
+	prev_py: f32 = -1 // points "up" in a y-down coord space
 	have_prev: bool = false
 
 	unit_seg :: proc(a, b: [2]f32) -> (dx, dy: f32, ok: bool) {
 		dx = b.x - a.x
 		dy = b.y - a.y
 		mag := math.sqrt(dx * dx + dy * dy)
-		if mag < 1e-6 { return 0, 0, false }
+		if mag < 1e-6 {return 0, 0, false}
 		return dx / mag, dy / mag, true
 	}
 
 	for i in 0 ..< n {
 		s := samples[i]
 		half_w := base_width * clamp(s.pressure, 0, 1) * 0.5
-		if half_w <= 0 { half_w = 0.5 }
+		if half_w <= 0 {half_w = 0.5}
 
 		// Average the unit-length segment directions going in and out
 		// of this sample. Unit vectors bound the sum to [0, 2] so two
 		// nearly opposite segments (hairpin) cancel to a small vector
 		// and we fall back to the previous perp rather than producing
 		// a wildly-rotated one.
-		in_dx,  in_dy,  has_in  := f32(0), f32(0), false
+		in_dx, in_dy, has_in := f32(0), f32(0), false
 		out_dx, out_dy, has_out := f32(0), f32(0), false
-		if i > 0     { in_dx,  in_dy,  has_in  = unit_seg(samples[i - 1].pos, s.pos) }
-		if i < n - 1 { out_dx, out_dy, has_out = unit_seg(s.pos, samples[i + 1].pos) }
+		if i > 0 {in_dx, in_dy, has_in = unit_seg(samples[i - 1].pos, s.pos)}
+		if i < n - 1 {out_dx, out_dy, has_out = unit_seg(s.pos, samples[i + 1].pos)}
 
 		dx, dy: f32
 		ok := false
 		if has_in && has_out {
-			dx = (in_dx  + out_dx) * 0.5
-			dy = (in_dy  + out_dy) * 0.5
+			dx = (in_dx + out_dx) * 0.5
+			dy = (in_dy + out_dy) * 0.5
 			mag := math.sqrt(dx * dx + dy * dy)
 			if mag > 1e-3 {
 				dx /= mag; dy /= mag; ok = true
 			}
 		}
-		if !ok && has_in  { dx, dy, ok = in_dx,  in_dy,  true  }
-		if !ok && has_out { dx, dy, ok = out_dx, out_dy, true  }
+		if !ok && has_in {dx, dy, ok = in_dx, in_dy, true}
+		if !ok && has_out {dx, dy, ok = out_dx, out_dy, true}
 
 		px, py: f32
 		if ok {
 			// Rotate 90° clockwise for framebuffer y-down space.
-			px, py =  dy, -dx
+			px, py = dy, -dx
 			prev_px, prev_py = px, py
 			have_prev = true
 		} else if have_prev {

@@ -109,6 +109,35 @@ backend_draw_rect :: proc(rc: ^Render_Context, rect: Rect, color: Color, radius:
 	rc.backend.draw.rect(rc.backend.state, rect, color, radius)
 }
 
+backend_draw_gradient_rect :: proc(
+	rc: ^Render_Context,
+	rect: Rect,
+	c_tl, c_tr, c_br, c_bl: Color,
+	radius: f32 = 0,
+) {
+	assert(rc != nil, "backend_draw_gradient_rect requires render context")
+	assert(rc.backend != nil, "backend_draw_gradient_rect requires backend")
+	assert(
+		rc.backend.draw.gradient_rect != nil,
+		"backend_draw_gradient_rect requires draw.gradient_rect callback",
+	)
+	rc.backend.draw.gradient_rect(rc.backend.state, rect, c_tl, c_tr, c_br, c_bl, radius)
+}
+
+backend_draw_shadow :: proc(
+	rc: ^Render_Context,
+	rect: Rect,
+	radius: f32,
+	blur: f32,
+	color: Color,
+	offset: [2]f32 = {0, 4},
+) {
+	assert(rc != nil, "backend_draw_shadow requires render context")
+	assert(rc.backend != nil, "backend_draw_shadow requires backend")
+	assert(rc.backend.draw.shadow != nil, "backend_draw_shadow requires draw.shadow callback")
+	rc.backend.draw.shadow(rc.backend.state, rect, radius, blur, color, offset)
+}
+
 backend_push_clip :: proc(rc: ^Render_Context, rect: Rect) {
 	assert(rc != nil, "backend_push_clip requires render context")
 	assert(rc.backend != nil, "backend_push_clip requires backend")
@@ -121,4 +150,63 @@ backend_pop_clip :: proc(rc: ^Render_Context) {
 	assert(rc.backend != nil, "backend_pop_clip requires backend")
 	assert(rc.backend.draw.pop_clip != nil, "backend_pop_clip requires draw.pop_clip callback")
 	rc.backend.draw.pop_clip(rc.backend.state)
+}
+
+backend_set_alpha :: proc(rc: ^Render_Context, alpha: f32) {
+	assert(rc != nil, "backend_set_alpha requires render context")
+	assert(rc.backend != nil, "backend_set_alpha requires backend")
+	assert(rc.backend.draw.set_alpha != nil, "backend_set_alpha requires draw.set_alpha callback")
+	rc.backend.draw.set_alpha(rc.backend.state, alpha)
+}
+
+renderer_backend :: proc(r: ^Renderer) -> Backend {
+	assert(r != nil, "renderer_backend requires renderer")
+	return Backend {
+		state = r,
+		capabilities = {.Clipboard, .Native_File_Dialogs, .Text_Input_Mode, .Multi_Window},
+		draw = Backend_Draw {
+			rect = renderer_backend_rect,
+			gradient_rect = renderer_backend_gradient_rect,
+			shadow = renderer_backend_shadow,
+			push_clip = renderer_backend_push_clip,
+			pop_clip = renderer_backend_pop_clip,
+			set_alpha = renderer_backend_set_alpha,
+		},
+	}
+}
+
+renderer_backend_rect :: proc(state: rawptr, rect: Rect, color: Color, radius: f32) {
+	renderer_draw_rect((^Renderer)(state), rect, color, radius)
+}
+
+renderer_backend_gradient_rect :: proc(
+	state: rawptr,
+	rect: Rect,
+	c_tl, c_tr, c_br, c_bl: Color,
+	radius: f32,
+) {
+	renderer_draw_gradient_rect((^Renderer)(state), rect, c_tl, c_tr, c_br, c_bl, radius)
+}
+
+renderer_backend_shadow :: proc(
+	state: rawptr,
+	rect: Rect,
+	radius: f32,
+	blur: f32,
+	color: Color,
+	offset: [2]f32,
+) {
+	renderer_draw_shadow((^Renderer)(state), rect, radius, blur, color, offset)
+}
+
+renderer_backend_push_clip :: proc(state: rawptr, rect: Rect) {
+	renderer_push_clip((^Renderer)(state), rect)
+}
+
+renderer_backend_pop_clip :: proc(state: rawptr) {
+	renderer_pop_clip((^Renderer)(state))
+}
+
+renderer_backend_set_alpha :: proc(state: rawptr, alpha: f32) {
+	(^Renderer)(state).alpha_multiplier = alpha
 }

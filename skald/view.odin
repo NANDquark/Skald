@@ -11161,9 +11161,14 @@ virtual_list_variable :: proc(
 		scope   := u64(widget_make_sub_id(id, k))
 		saved   := widget_scope_push(ctx, scope)
 		v  := row_builder(ctx, state, i)
-		backend := renderer_backend(ctx.renderer)
-		rc := render_context_from_backend(&backend)
-		sz := view_size(&rc, v)
+		sz: [2]f32
+		if ctx.render != nil {
+			sz = view_size(ctx.render, v)
+		} else if ctx.renderer != nil {
+			backend := renderer_backend(ctx.renderer)
+			rc := renderer_render_context(&backend, ctx.renderer)
+			sz = view_size(&rc, v)
+		}
 		if sz.y > 0 { heights[i] = sz.y }
 		append(&built, v)
 		widget_scope_pop(ctx, saved)

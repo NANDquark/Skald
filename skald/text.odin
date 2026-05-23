@@ -387,6 +387,13 @@ font_load :: proc(r: ^Renderer, name: string, data: []byte) -> Font {
 	return Font(fs.AddFontMem(&r.text.fs, name, data, false))
 }
 
+font_load_ctx :: proc(r: ^Render_Context, name: string, data: []byte) -> Font {
+	assert(r != nil, "font_load_ctx requires render context")
+	assert(r.backend != nil, "font_load_ctx requires backend")
+	assert(r.backend.text.load_font != nil, "font_load_ctx requires text.load_font callback")
+	return r.backend.text.load_font(r.backend.state, name, data)
+}
+
 // font_add_fallback chains `fallback` to `base` so codepoints missing
 // from `base` (e.g. CJK / Arabic / Devanagari glyphs absent from the
 // bundled Inter) are looked up in `fallback` next. Use the default
@@ -489,6 +496,20 @@ draw_text :: proc(
 	}
 }
 
+draw_text_ctx :: proc(
+	r:     ^Render_Context,
+	text:  string,
+	x, y:  f32,
+	color: Color,
+	size:  f32 = 14,
+	font:  Font = 0,
+) {
+	assert(r != nil, "draw_text_ctx requires render context")
+	assert(r.backend != nil, "draw_text_ctx requires backend")
+	assert(r.backend.text.draw != nil, "draw_text_ctx requires text.draw callback")
+	r.backend.text.draw(r.backend.state, text, x, y, color, size, font)
+}
+
 // text_ascent returns the font's ascent (distance from baseline up to the
 // top of the cap) at the given size. The layout code uses it to convert a
 // top-left anchored View_Text origin into the baseline y that `draw_text`
@@ -506,6 +527,13 @@ text_ascent :: proc(r: ^Renderer, size: f32, font: Font = 0) -> f32 {
 	fs.SetSize(&r.text.fs, size * scale)
 	ascent, _, _ := fs.VerticalMetrics(&r.text.fs)
 	return ascent / scale
+}
+
+text_ascent_ctx :: proc(r: ^Render_Context, size: f32, font: Font = 0) -> f32 {
+	assert(r != nil, "text_ascent_ctx requires render context")
+	assert(r.backend != nil, "text_ascent_ctx requires backend")
+	assert(r.backend.text.ascent != nil, "text_ascent_ctx requires text.ascent callback")
+	return r.backend.text.ascent(r.backend.state, size, font)
 }
 
 // measure_text returns the advance width and line height of the string at
@@ -536,6 +564,18 @@ measure_text :: proc(
 	_, _, lh := fs.VerticalMetrics(&r.text.fs)
 	line_height = lh * inv
 	return
+}
+
+measure_text_ctx :: proc(
+	r:    ^Render_Context,
+	text: string,
+	size: f32 = 14,
+	font: Font = 0,
+) -> (width, line_height: f32) {
+	assert(r != nil, "measure_text_ctx requires render context")
+	assert(r.backend != nil, "measure_text_ctx requires backend")
+	assert(r.backend.text.measure != nil, "measure_text_ctx requires text.measure callback")
+	return r.backend.text.measure(r.backend.state, text, size, font)
 }
 
 // byte_index_at_x returns the byte index in `text` whose horizontal
@@ -795,6 +835,19 @@ wrap_text :: proc(
 	out := lines[:]
 	if use_cache { r.wrap_cache[key] = out }
 	return out
+}
+
+wrap_text_ctx :: proc(
+	r:         ^Render_Context,
+	text:      string,
+	max_width: f32,
+	size:      f32  = 14,
+	font:      Font = 0,
+) -> []string {
+	assert(r != nil, "wrap_text_ctx requires render context")
+	assert(r.backend != nil, "wrap_text_ctx requires backend")
+	assert(r.backend.text.wrap != nil, "wrap_text_ctx requires text.wrap callback")
+	return r.backend.text.wrap(r.backend.state, text, max_width, size, font)
 }
 
 // Rich_Segment is one styled run inside a single visual line of a

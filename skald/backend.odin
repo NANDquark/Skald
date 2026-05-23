@@ -189,6 +189,13 @@ renderer_backend :: proc(r: ^Renderer) -> Backend {
 			pop_clip = renderer_backend_pop_clip,
 			set_alpha = renderer_backend_set_alpha,
 		},
+		text = Backend_Text {
+			load_font = renderer_backend_font_load,
+			measure = renderer_backend_text_measure,
+			wrap = renderer_backend_text_wrap,
+			ascent = renderer_backend_text_ascent,
+			draw = renderer_backend_text_draw,
+		},
 	}
 }
 
@@ -226,4 +233,41 @@ renderer_backend_pop_clip :: proc(state: rawptr) {
 
 renderer_backend_set_alpha :: proc(state: rawptr, alpha: f32) {
 	(^Renderer)(state).alpha_multiplier = alpha
+}
+
+renderer_backend_font_load :: proc(state: rawptr, name: string, data: []byte) -> Font {
+	return font_load((^Renderer)(state), name, data)
+}
+
+renderer_backend_text_measure :: proc(
+	state: rawptr,
+	text: string,
+	size: f32,
+	font: Font,
+) -> (f32, f32) {
+	return measure_text((^Renderer)(state), text, size, font)
+}
+
+renderer_backend_text_wrap :: proc(
+	state: rawptr,
+	text: string,
+	max_width, size: f32,
+	font: Font,
+) -> []string {
+	return wrap_text((^Renderer)(state), text, max_width, size, font)
+}
+
+renderer_backend_text_ascent :: proc(state: rawptr, size: f32, font: Font) -> f32 {
+	return text_ascent((^Renderer)(state), size, font)
+}
+
+renderer_backend_text_draw :: proc(
+	state: rawptr,
+	text: string,
+	x, y: f32,
+	color: Color,
+	size: f32,
+	font: Font,
+) {
+	draw_text((^Renderer)(state), text, x, y, color, size, font)
 }

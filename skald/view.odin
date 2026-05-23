@@ -1097,6 +1097,42 @@ text_line_byte_offset :: proc(str, line: string) -> int {
 	return delta
 }
 
+ctx_measure_text :: proc(ctx: ^Ctx($Msg), text: string, size: f32, font: Font = 0) -> (f32, f32) {
+	if ctx != nil && ctx.render != nil {
+		return measure_text_ctx(ctx.render, text, size, font)
+	}
+	if ctx != nil && ctx.renderer != nil {
+		return measure_text(ctx.renderer, text, size, font)
+	}
+	return f32(len(text)) * size * 0.55, size * 1.2
+}
+
+ctx_wrap_text :: proc(
+	ctx:       ^Ctx($Msg),
+	text:      string,
+	max_width: f32,
+	size:      f32,
+	font:      Font = 0,
+) -> []string {
+	if ctx != nil && ctx.render != nil {
+		return wrap_text_ctx(ctx.render, text, max_width, size, font)
+	}
+	if ctx != nil && ctx.renderer != nil {
+		return wrap_text(ctx.renderer, text, max_width, size, font)
+	}
+	return split_lines(text)
+}
+
+ctx_text_ascent :: proc(ctx: ^Ctx($Msg), size: f32, font: Font = 0) -> f32 {
+	if ctx != nil && ctx.render != nil {
+		return text_ascent_ctx(ctx.render, size, font)
+	}
+	if ctx != nil && ctx.renderer != nil {
+		return text_ascent(ctx.renderer, size, font)
+	}
+	return size * 0.8
+}
+
 // text_word_range returns the [lo, hi) byte range of the word containing
 // `byte_pos` in `str`, using runa's UAX #29 word segmentation. Backend-
 // agnostic: runa is always linked into Skald, so this works the same on
@@ -2092,8 +2128,8 @@ badge :: proc(
 	v_pad := th.spacing.xs
 
 	tw, lh: f32
-	if ctx.renderer != nil {
-		tw, lh = measure_text(ctx.renderer, label, fs)
+	if ctx.render != nil || ctx.renderer != nil {
+		tw, lh = ctx_measure_text(ctx, label, fs)
 	} else {
 		// Unit-test fallback: coarse estimate based on font size. Keeps
 		// the builder callable without a live GPU context.
@@ -2155,8 +2191,8 @@ chip :: proc(
 
 	lw, lh: f32
 	x_glyph :: "\u00D7"  // ×
-	if ctx.renderer != nil {
-		lw, lh = measure_text(ctx.renderer, label, fs)
+	if ctx.render != nil || ctx.renderer != nil {
+		lw, lh = ctx_measure_text(ctx, label, fs)
 	} else {
 		lw = f32(len(label)) * fs * 0.55
 		lh = fs * 1.2
@@ -2663,8 +2699,8 @@ kbd :: proc(
 	v_pad := f32(2)  // tighter than badge — keeps the cap looking crisp
 
 	tw, lh: f32
-	if ctx.renderer != nil {
-		tw, lh = measure_text(ctx.renderer, label, fs)
+	if ctx.render != nil || ctx.renderer != nil {
+		tw, lh = ctx_measure_text(ctx, label, fs)
 	} else {
 		tw = f32(len(label)) * fs * 0.55
 		lh = fs * 1.2
@@ -3864,8 +3900,8 @@ _text_input_impl :: proc(
 	// Line height: measure once per frame so multiline clicks and caret
 	// motion agree. An empty string still returns the font's line height.
 	line_h: f32 = fs
-	if ctx.renderer != nil {
-		_, line_h = measure_text(ctx.renderer, "Ag", fs)
+	if ctx.render != nil || ctx.renderer != nil {
+		_, line_h = ctx_measure_text(ctx, "Ag", fs)
 	}
 	// Multiline scrolls vertically against st.scroll_y. content_y0 is
 	// the y where the first line's glyphs land *after* scrolling — click
@@ -4273,7 +4309,7 @@ _text_input_impl :: proc(
 		if multiline && (.Up in keys || .Down in keys) && ctx.renderer != nil {
 			cur_line := visual_line_of_byte(visual_lines, cursor)
 			cur_vl   := visual_lines[cur_line]
-			col_x, _ := measure_text(ctx.renderer,
+			col_x, _ := ctx_measure_text(ctx,
 				new_value[cur_vl.start:cursor], fs)
 
 			target := cur_line
@@ -6408,10 +6444,10 @@ _combobox_impl :: proc(
 	// fit. Clamped to the framebuffer width (minus a small margin)
 	// so a pathologically long label can't paint off-screen. We only
 	// pay the O(N) measure cost while the popover is open.
-	if st.open && ctx.renderer != nil && len(options) > 0 {
+	if st.open && (ctx.render != nil || ctx.renderer != nil) && len(options) > 0 {
 		max_label_w: f32 = 0
 		for opt in options {
-			w, _ := measure_text(ctx.renderer, opt, fs)
+			w, _ := ctx_measure_text(ctx, opt, fs)
 			if w > max_label_w { max_label_w = w }
 		}
 		// chrome accounts for: border + overlay padding (both sides),
@@ -9658,9 +9694,9 @@ _segmented_impl :: proc(
 	// the widest one. A fixed per-segment width gives the pill a tidy
 	// "tabs" rhythm regardless of label length — iOS/macOS do the same.
 	seg_w: f32 = 0
-	if ctx.renderer != nil {
+	if ctx.render != nil || ctx.renderer != nil {
 		for opt in options {
-			w, _ := measure_text(ctx.renderer, opt, fs)
+			w, _ := ctx_measure_text(ctx, opt, fs)
 			if w > seg_w { seg_w = w }
 		}
 	}
@@ -12051,7 +12087,7 @@ menu_bar :: proc(
 	// essentially always in practice.
 	trig_widths := make([]f32, len(entries), context.temp_allocator)
 	for entry, i in entries {
-		w, _ := measure_text(ctx.renderer, entry.label, fs)
+		w, _ := ctx_measure_text(ctx, entry.label, fs)
 		trig_widths[i] = w + 2*TRIG_PAD_X
 	}
 
@@ -12110,10 +12146,10 @@ menu_bar :: proc(
 		for item in active_items {
 			if item.separator { continue }
 			if item.checked { has_checks = true }
-			lw, _ := measure_text(ctx.renderer, item.label, fs)
+			lw, _ := ctx_measure_text(ctx, item.label, fs)
 			if lw > max_label { max_label = lw }
 			if !shortcut_is_empty(item.shortcut) {
-				sw, _ := measure_text(ctx.renderer,
+				sw, _ := ctx_measure_text(ctx,
 					shortcut_format(item.shortcut), fs_short)
 				if sw > max_short { max_short = sw }
 			}
@@ -12122,7 +12158,7 @@ menu_bar :: proc(
 		// checked item right now — keeps unchecked menus visually identical
 		// to pre-1.2 builds. Width is the glyph + a spacing.sm gutter.
 		if has_checks {
-			cw, _ := measure_text(ctx.renderer, "✓", fs)
+			cw, _ := ctx_measure_text(ctx, "✓", fs)
 			check_col_w = cw + th.spacing.sm
 		}
 		inner_w := check_col_w + max_label + max_short

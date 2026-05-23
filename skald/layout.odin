@@ -92,7 +92,6 @@ view_height_for_width :: proc(r: ^Render_Context, v: View, width: f32) -> f32 {
 // aggregate children. `View_Flex` reports its child's intrinsic — weights
 // only matter once a parent stack has leftover space to distribute.
 view_size :: proc(r: ^Render_Context, v: View) -> [2]f32 {
-	rr := render_context_renderer(r)
 	switch vv in v {
 	case View_Rect:
 		return vv.size
@@ -102,8 +101,8 @@ view_size :: proc(r: ^Render_Context, v: View) -> [2]f32 {
 
 	case View_Text:
 		if vv.max_width > 0 {
-			lines := wrap_text(rr, vv.str, vv.max_width, vv.size, vv.font)
-			_, lh := measure_text(rr, "", vv.size, vv.font)
+			lines := wrap_text_ctx(r, vv.str, vv.max_width, vv.size, vv.font)
+			_, lh := measure_text_ctx(r, "", vv.size, vv.font)
 			return {vv.max_width, lh * f32(len(lines))}
 		}
 		// No-wrap path. Embedded line breaks (\n, \r\n, \r) still
@@ -115,15 +114,15 @@ view_size :: proc(r: ^Render_Context, v: View) -> [2]f32 {
 		// stays allocation-free.
 		if strings.contains_any(vv.str, "\n\r") {
 			lines := split_lines(vv.str)
-			_, lh := measure_text(rr, "", vv.size, vv.font)
+			_, lh := measure_text_ctx(r, "", vv.size, vv.font)
 			max_w: f32
 			for line in lines {
-				w, _ := measure_text(rr, expand_tabs(line), vv.size, vv.font)
+				w, _ := measure_text_ctx(r, expand_tabs(line), vv.size, vv.font)
 				if w > max_w {max_w = w}
 			}
 			return {max_w, lh * f32(len(lines))}
 		}
-		w, h := measure_text(rr, expand_tabs(vv.str), vv.size, vv.font)
+		w, h := measure_text_ctx(r, expand_tabs(vv.str), vv.size, vv.font)
 		return {w, h}
 
 	case View_Rich_Text:
@@ -202,7 +201,7 @@ view_size :: proc(r: ^Render_Context, v: View) -> [2]f32 {
 		return view_size(r, vv.child^)
 
 	case View_Button:
-		tw, lh := measure_text(rr, vv.label, vv.font_size)
+		tw, lh := measure_text_ctx(r, vv.label, vv.font_size)
 		w: f32 = vv.width
 		if w == 0 {w = tw + 2 * vv.padding.x}
 		return {w, lh + 2 * vv.padding.y}
@@ -217,7 +216,7 @@ view_size :: proc(r: ^Render_Context, v: View) -> [2]f32 {
 		w: f32 = vv.box_size
 		h: f32 = vv.box_size
 		if len(vv.label) > 0 {
-			tw, lh := measure_text(rr, vv.label, vv.font_size)
+			tw, lh := measure_text_ctx(r, vv.label, vv.font_size)
 			w += vv.gap + tw
 			if lh > h {h = lh}
 		}
@@ -227,7 +226,7 @@ view_size :: proc(r: ^Render_Context, v: View) -> [2]f32 {
 		w: f32 = vv.box_size
 		h: f32 = vv.box_size
 		if len(vv.label) > 0 {
-			tw, lh := measure_text(rr, vv.label, vv.font_size)
+			tw, lh := measure_text_ctx(r, vv.label, vv.font_size)
 			w += vv.gap + tw
 			if lh > h {h = lh}
 		}
@@ -237,7 +236,7 @@ view_size :: proc(r: ^Render_Context, v: View) -> [2]f32 {
 		w: f32 = vv.track_w
 		h: f32 = vv.track_h
 		if len(vv.label) > 0 {
-			tw, lh := measure_text(rr, vv.label, vv.font_size)
+			tw, lh := measure_text_ctx(r, vv.label, vv.font_size)
 			w += vv.gap + tw
 			if lh > h {h = lh}
 		}
@@ -300,7 +299,7 @@ view_size :: proc(r: ^Render_Context, v: View) -> [2]f32 {
 		return {0, 0}
 
 	case View_Link:
-		w, h := measure_text(rr, vv.label, vv.font_size)
+		w, h := measure_text_ctx(r, vv.label, vv.font_size)
 		return {w, h}
 
 	case View_Toast:
@@ -361,7 +360,7 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 	case View_Text:
 		// draw_text takes a baseline y — offset by ascent so the view's
 		// top edge aligns with `origin.y`, matching what view_size reports.
-		ascent := text_ascent(rr, vv.size, vv.font)
+		ascent := text_ascent_ctx(r, vv.size, vv.font)
 		if r.widgets != nil && vv.selectable && vv.id != 0 {
 			widget_record_rect(r.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
 		}
@@ -374,8 +373,8 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		// Inlined per branch below because Odin closures aren't a thing.
 
 		if vv.max_width > 0 {
-			lines := wrap_text(rr, vv.str, vv.max_width, vv.size, vv.font)
-			_, lh := measure_text(rr, "", vv.size, vv.font)
+			lines := wrap_text_ctx(r, vv.str, vv.max_width, vv.size, vv.font)
+			_, lh := measure_text_ctx(r, "", vv.size, vv.font)
 			y := origin.y
 			for line in lines {
 				if has_sel {
@@ -386,8 +385,8 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 							lo_in := max(sel_lo, line_off) - line_off
 							hi_in := min(sel_hi, line_end) - line_off
 							x0: f32 = 0
-							if lo_in > 0 {x0, _ = measure_text(rr, line[:lo_in], vv.size, vv.font)}
-							x1, _ := measure_text(rr, line[:hi_in], vv.size, vv.font)
+							if lo_in > 0 {x0, _ = measure_text_ctx(r, line[:lo_in], vv.size, vv.font)}
+							x1, _ := measure_text_ctx(r, line[:hi_in], vv.size, vv.font)
 							draw_rect(
 								r,
 								Rect{origin.x + x0, y, x1 - x0, lh},
@@ -397,12 +396,12 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 						}
 					}
 				}
-				draw_text(rr, line, origin.x, y + ascent, vv.color, vv.size, vv.font)
+				draw_text_ctx(r, line, origin.x, y + ascent, vv.color, vv.size, vv.font)
 				y += lh
 			}
 		} else if strings.contains_any(vv.str, "\n\r") {
 			lines := split_lines(vv.str)
-			_, lh := measure_text(rr, "", vv.size, vv.font)
+			_, lh := measure_text_ctx(r, "", vv.size, vv.font)
 			y := origin.y
 			for line in lines {
 				if has_sel {
@@ -413,8 +412,8 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 							lo_in := max(sel_lo, line_off) - line_off
 							hi_in := min(sel_hi, line_end) - line_off
 							x0: f32 = 0
-							if lo_in > 0 {x0, _ = measure_text(rr, line[:lo_in], vv.size, vv.font)}
-							x1, _ := measure_text(rr, line[:hi_in], vv.size, vv.font)
+							if lo_in > 0 {x0, _ = measure_text_ctx(r, line[:lo_in], vv.size, vv.font)}
+							x1, _ := measure_text_ctx(r, line[:hi_in], vv.size, vv.font)
 							draw_rect(
 								r,
 								Rect{origin.x + x0, y, x1 - x0, lh},
@@ -424,19 +423,19 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 						}
 					}
 				}
-				draw_text(rr, expand_tabs(line), origin.x, y + ascent, vv.color, vv.size, vv.font)
+				draw_text_ctx(r, expand_tabs(line), origin.x, y + ascent, vv.color, vv.size, vv.font)
 				y += lh
 			}
 		} else {
 			if has_sel {
-				_, lh := measure_text(rr, "", vv.size, vv.font)
+				_, lh := measure_text_ctx(r, "", vv.size, vv.font)
 				x0: f32 = 0
-				if sel_lo > 0 {x0, _ = measure_text(rr, vv.str[:sel_lo], vv.size, vv.font)}
-				x1, _ := measure_text(rr, vv.str[:sel_hi], vv.size, vv.font)
+				if sel_lo > 0 {x0, _ = measure_text_ctx(r, vv.str[:sel_lo], vv.size, vv.font)}
+				x1, _ := measure_text_ctx(r, vv.str[:sel_hi], vv.size, vv.font)
 				draw_rect(r, Rect{origin.x + x0, origin.y, x1 - x0, lh}, vv.color_selection, 0)
 			}
-			draw_text(
-				rr,
+			draw_text_ctx(
+				r,
 				expand_tabs(vv.str),
 				origin.x,
 				origin.y + ascent,
@@ -504,15 +503,15 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 						hi_in_seg := min(sel_hi, abs_end) - abs_start
 						x_lo: f32 = 0
 						if lo_in_seg > 0 {
-							x_lo, _ = measure_text(
-								rr,
+							x_lo, _ = measure_text_ctx(
+								r,
 								sp.str[seg.byte_start:seg.byte_start + lo_in_seg],
 								sz,
 								fnt,
 							)
 						}
-						x_hi, _ := measure_text(
-							rr,
+						x_hi, _ := measure_text_ctx(
+							r,
 							sp.str[seg.byte_start:seg.byte_start + hi_in_seg],
 							sz,
 							fnt,
@@ -527,7 +526,7 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 				}
 				if seg.byte_end > seg.byte_start && seg.byte_end <= len(sp.str) {
 					sub := sp.str[seg.byte_start:seg.byte_end]
-					draw_text(rr, sub, x, baseline, col, sz, fnt)
+					draw_text_ctx(r, sub, x, baseline, col, sz, fnt)
 				}
 				if sp.underline {
 					draw_rect(r, Rect{x, baseline + UNDERLINE_OFF, seg.width, 1}, col, 0)
@@ -585,7 +584,7 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 			draw_focus_ring(r, {origin.x, origin.y, size.x, size.y}, vv.radius, vv.color_focus, bg)
 		}
 
-		tw, lh := measure_text(rr, vv.label, vv.font_size)
+		tw, lh := measure_text_ctx(r, vv.label, vv.font_size)
 		tx: f32
 		switch vv.text_align {
 		case .Start:
@@ -596,7 +595,7 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 			tx = origin.x + (size.x - tw) / 2
 		}
 		ty := origin.y + (size.y - lh) / 2
-		ascent := text_ascent(rr, vv.font_size, 0)
+		ascent := text_ascent_ctx(r, vv.font_size, 0)
 
 		// Clip the label to the button rect so a label wider than the
 		// button can't spill into neighbouring widgets. Tight buttons
@@ -604,7 +603,7 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		// this — without it, over-long text visually punches through
 		// the next button's background.
 		push_clip(r, {origin.x, origin.y, size.x, size.y})
-		draw_text(rr, vv.label, tx, ty + ascent, vv.fg, vv.font_size, 0)
+		draw_text_ctx(r, vv.label, tx, ty + ascent, vv.fg, vv.font_size, 0)
 		pop_clip(r)
 
 	case View_Text_Input:
@@ -663,8 +662,8 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 			display_col = vv.color_placeholder
 		}
 
-		_, lh := measure_text(rr, display, vv.font_size)
-		ascent := text_ascent(rr, vv.font_size, 0)
+		_, lh := measure_text_ctx(r, display, vv.font_size)
+		ascent := text_ascent_ctx(r, vv.font_size, 0)
 
 		if !vv.multiline {
 			// Single-line: vertically center. measure_text returns the
@@ -683,13 +682,13 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 				hi = clamp(hi, 0, len(vv.text))
 				x_lo: f32 = 0
 				x_hi: f32 = 0
-				if lo > 0 {x_lo, _ = measure_text(rr, vv.text[:lo], vv.font_size)}
-				if hi > 0 {x_hi, _ = measure_text(rr, vv.text[:hi], vv.font_size)}
+				if lo > 0 {x_lo, _ = measure_text_ctx(r, vv.text[:lo], vv.font_size)}
+				if hi > 0 {x_hi, _ = measure_text_ctx(r, vv.text[:hi], vv.font_size)}
 				draw_rect(r, {ix + x_lo, ty, x_hi - x_lo, lh}, vv.color_selection, 0)
 			}
 
 			if len(display) > 0 {
-				draw_text(rr, display, ix, ty + ascent, display_col, vv.font_size, 0)
+				draw_text_ctx(r, display, ix, ty + ascent, display_col, vv.font_size, 0)
 			}
 
 			// Caret: measure the prefix up to cursor_pos to locate its x.
@@ -698,7 +697,7 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 			if vv.focused {
 				cw: f32 = 0
 				if vv.cursor_pos > 0 && vv.cursor_pos <= len(vv.text) {
-					cw, _ = measure_text(rr, vv.text[:vv.cursor_pos], vv.font_size)
+					cw, _ = measure_text_ctx(r, vv.text[:vv.cursor_pos], vv.font_size)
 				}
 				caret_w: f32 = 1.5
 				draw_rect(r, {ix + cw, ty, caret_w, lh}, vv.color_caret, 0)
@@ -714,11 +713,11 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 			if vv.show_clear {
 				glyph_col := vv.color_placeholder
 				if vv.clear_hovered {glyph_col = vv.color_fg}
-				gw, glh := measure_text(rr, "×", vv.font_size)
+				gw, glh := measure_text_ctx(r, "×", vv.font_size)
 				gx := ix + iw + (clear_w - gw) / 2
 				gy := iy + (ih - glh) / 2
-				ascent := text_ascent(rr, vv.font_size, 0)
-				draw_text(rr, "×", gx, gy + ascent, glyph_col, vv.font_size, 0)
+				ascent := text_ascent_ctx(r, vv.font_size, 0)
+				draw_text_ctx(r, "×", gx, gy + ascent, glyph_col, vv.font_size, 0)
 			}
 		} else {
 			// Multiline: top-aligned, one glyph run per visual line (the
@@ -745,7 +744,7 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 				// Empty buffer: show placeholder (if any) and draw the
 				// caret at the origin so focus is still visible.
 				if len(display) > 0 && display_col.a != 0 {
-					draw_text(rr, display, ix, iy + ascent, display_col, vv.font_size, 0)
+					draw_text_ctx(r, display, ix, iy + ascent, display_col, vv.font_size, 0)
 				}
 				if vv.focused {
 					draw_rect(r, {ix, iy, 1.5, lh}, vv.color_caret, 0)
@@ -768,8 +767,8 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 						hi := min(sel_hi, j)
 						x_lo: f32 = 0
 						x_hi: f32 = 0
-						if lo > i {x_lo, _ = measure_text(rr, vv.text[i:lo], vv.font_size)}
-						if hi > i {x_hi, _ = measure_text(rr, vv.text[i:hi], vv.font_size)}
+						if lo > i {x_lo, _ = measure_text_ctx(r, vv.text[i:lo], vv.font_size)}
+						if hi > i {x_hi, _ = measure_text_ctx(r, vv.text[i:hi], vv.font_size)}
 						if line_ends_hard && sel_hi > j {
 							x_hi += vv.font_size * 0.4
 						}
@@ -787,8 +786,8 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 					// space consumed by a wrap break, so `text[vl.start:vl.end]`
 					// is exactly what should render.
 					if j > i {
-						draw_text(
-							rr,
+						draw_text_ctx(
+							r,
 							vv.text[i:j],
 							ix,
 							line_y + ascent,
@@ -815,7 +814,7 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 						if draw_here {
 							cw: f32 = 0
 							if vv.cursor_pos > i {
-								cw, _ = measure_text(rr, vv.text[i:vv.cursor_pos], vv.font_size)
+								cw, _ = measure_text_ctx(r, vv.text[i:vv.cursor_pos], vv.font_size)
 							}
 							draw_rect(r, {ix + cw, line_y, 1.5, lh}, vv.color_caret, 0)
 						}
@@ -892,19 +891,19 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 			// ✓ drawn as a glyph so it picks up the text pipeline's AA
 			// and scales with the font system, no bespoke stroke code.
 			mark := "✓"
-			tw, lh := measure_text(rr, mark, vv.font_size)
+			tw, lh := measure_text_ctx(r, mark, vv.font_size)
 			tx := box_r.x + (box_r.w - tw) / 2
 			ty := box_r.y + (box_r.h - lh) / 2
-			ascent := text_ascent(rr, vv.font_size, 0)
-			draw_text(rr, mark, tx, ty + ascent, vv.color_check, vv.font_size, 0)
+			ascent := text_ascent_ctx(r, vv.font_size, 0)
+			draw_text_ctx(r, mark, tx, ty + ascent, vv.color_check, vv.font_size, 0)
 		}
 
 		if len(vv.label) > 0 {
-			_, lh := measure_text(rr, vv.label, vv.font_size)
+			_, lh := measure_text_ctx(r, vv.label, vv.font_size)
 			ty := origin.y + (size.y - lh) / 2
-			ascent := text_ascent(rr, vv.font_size, 0)
-			draw_text(
-				rr,
+			ascent := text_ascent_ctx(r, vv.font_size, 0)
+			draw_text_ctx(
+				r,
 				vv.label,
 				box_r.x + vv.box_size + vv.gap,
 				ty + ascent,
@@ -951,11 +950,11 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		}
 
 		if len(vv.label) > 0 {
-			_, lh := measure_text(rr, vv.label, vv.font_size)
+			_, lh := measure_text_ctx(r, vv.label, vv.font_size)
 			ty := origin.y + (size.y - lh) / 2
-			ascent := text_ascent(rr, vv.font_size, 0)
-			draw_text(
-				rr,
+			ascent := text_ascent_ctx(r, vv.font_size, 0)
+			draw_text_ctx(
+				r,
 				vv.label,
 				box_r.x + vv.box_size + vv.gap,
 				ty + ascent,
@@ -1009,11 +1008,11 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		draw_rect(r, {knob_x, knob_y, knob_d, knob_d}, vv.color_knob, knob_d * 0.5)
 
 		if len(vv.label) > 0 {
-			_, lh := measure_text(rr, vv.label, vv.font_size)
+			_, lh := measure_text_ctx(r, vv.label, vv.font_size)
 			ty := origin.y + (size.y - lh) / 2
-			ascent := text_ascent(rr, vv.font_size, 0)
-			draw_text(
-				rr,
+			ascent := text_ascent_ctx(r, vv.font_size, 0)
+			draw_text_ctx(
+				r,
 				vv.label,
 				track_x + vv.track_w + vv.gap,
 				ty + ascent,
@@ -1269,15 +1268,15 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		caret_x := origin.x + size.x - vv.padding.x - caret_w
 		caret_y := origin.y + (size.y - caret_h) / 2
 
-		_, lh := measure_text(rr, display, vv.font_size)
+		_, lh := measure_text_ctx(r, display, vv.font_size)
 		ty := iy + (size.y - 2 * vv.padding.y - lh) / 2
-		ascent := text_ascent(rr, vv.font_size, 0)
+		ascent := text_ascent_ctx(r, vv.font_size, 0)
 
 		// Label (clipped so overflow doesn't escape into the caret area).
 		label_w := iw - caret_w - 6
 		if label_w < 0 {label_w = 0}
 		push_clip(r, {ix, iy, label_w, size.y - 2 * vv.padding.y})
-		draw_text(rr, display, ix, ty + ascent, display_col, vv.font_size, 0)
+		draw_text_ctx(r, display, ix, ty + ascent, display_col, vv.font_size, 0)
 		pop_clip(r)
 
 		// Caret triangle. Each row is 1 px tall and shrinks by 2 px
@@ -1359,9 +1358,9 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 			append(&lines, vv.text[start:])
 		}
 		max_w: f32 = 0
-		_, lh := measure_text(rr, "", vv.font_size)
+		_, lh := measure_text_ctx(r, "", vv.font_size)
 		for line in lines {
-			lw, _ := measure_text(rr, line, vv.font_size)
+			lw, _ := measure_text_ctx(r, line, vv.font_size)
 			if lw > max_w {max_w = lw}
 		}
 		bubble_w := max_w + 2 * vv.padding.x
@@ -1592,12 +1591,12 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		col := vv.color
 		if vv.hover || vv.focused {col = vv.color_hover}
 
-		ascent := text_ascent(rr, vv.font_size, 0)
-		tw, lh := measure_text(rr, vv.label, vv.font_size)
+		ascent := text_ascent_ctx(r, vv.font_size, 0)
+		tw, lh := measure_text_ctx(r, vv.label, vv.font_size)
 		tx := origin.x
 		ty := origin.y
 
-		draw_text(rr, vv.label, tx, ty + ascent, col, vv.font_size, 0)
+		draw_text_ctx(r, vv.label, tx, ty + ascent, col, vv.font_size, 0)
 
 		if vv.focused {
 			// Two-px outline so the link's focus ring matches the

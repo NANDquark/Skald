@@ -156,6 +156,7 @@ Ctx :: struct($Msg: typeid) {
 	// request to render-time. It's nil outside of `run` — unit tests
 	// constructing a Ctx by hand don't need a live GPU context.
 	renderer:   ^Renderer,
+	render:     ^Render_Context,
 
 	// window identifies which window this view call is for. Single-window
 	// apps never need to inspect it — it always equals `main_window` (the
@@ -245,6 +246,7 @@ map_msg :: proc(
 		msgs       = sub_msgs,
 		widgets    = parent_ctx.widgets,
 		renderer   = parent_ctx.renderer,
+		render     = parent_ctx.render,
 		window     = parent_ctx.window,
 		breakpoint = parent_ctx.breakpoint,
 	}
@@ -317,6 +319,7 @@ map_msg_for :: proc(
 		msgs       = sub_msgs,
 		widgets    = parent_ctx.widgets,
 		renderer   = parent_ctx.renderer,
+		render     = parent_ctx.render,
 		window     = parent_ctx.window,
 		breakpoint = parent_ctx.breakpoint,
 	}
@@ -919,6 +922,7 @@ run :: proc(app: App($State, $Msg)) {
 					msgs       = &msgs,
 					widgets    = t_widgets,
 					renderer   = &r,
+					render     = &rc,
 					window     = Window_Id(t),
 					breakpoint = breakpoint_for_width(f32(t_w.size_logical.x)),
 				}

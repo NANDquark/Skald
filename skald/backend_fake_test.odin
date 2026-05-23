@@ -41,6 +41,10 @@ fake_set_alpha :: proc(state: rawptr, alpha: f32) {
 	append(&s.ops, Fake_Draw_Op{kind = .Set_Alpha, alpha = alpha})
 }
 
+fake_measure_text :: proc(state: rawptr, text: string, size: f32, font: Font) -> (f32, f32) {
+	return f32(len(text)) * size, size
+}
+
 fake_backend :: proc(state: ^Fake_Backend_State) -> Backend {
 	return Backend {
 		state = state,
@@ -51,6 +55,20 @@ fake_backend :: proc(state: ^Fake_Backend_State) -> Backend {
 			set_alpha = fake_set_alpha,
 		},
 	}
+}
+
+@(test)
+backend_text_measure_uses_service :: proc(t: ^testing.T) {
+	fake: Fake_Backend_State
+
+	backend := fake_backend(&fake)
+	backend.text.measure = fake_measure_text
+	rc := render_context_from_backend(&backend)
+
+	w, h := measure_text_ctx(&rc, "abc", 12, 0)
+
+	testing.expect_value(t, w, f32(36))
+	testing.expect_value(t, h, f32(12))
 }
 
 @(test)

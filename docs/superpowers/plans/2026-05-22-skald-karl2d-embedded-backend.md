@@ -12,15 +12,18 @@
 
 ## Resume Snapshot
 
-Last updated: 2026-05-22.
+Last updated: 2026-05-23.
 
 Current implementation state:
 
 - Complete: Task 1, committed as `c191ebc feat: add skald backend service contracts`.
 - Complete: Task 2, committed as `6c8ec06 feat: add backend-neutral input capture helpers`.
-- Next task: Task 3, "Existing Renderer Compatibility Facade".
-- Last verified command: `odin test ./skald -collection:gui=. -define:SKALD_RUNA=false`, passing with 4 tests after Task 2.
-- Current branch: `main`, with `HEAD` at `6c8ec06`.
+- Complete: Task 3, committed as `92a2982 refactor: add renderer backend compatibility facade` plus `61ccfe7 test: cover renderer backend compatibility`.
+- Complete: Task 4, committed as `6455f7e refactor: render layout through backend context`, with follow-up fixes `b2f906f`, `200b2d6`, and `36309e9`.
+- Complete: Task 5, committed as `f8afa6f refactor: route layout text through backend service`, with follow-up fixes `03ab056`, `53a2579`, `3e65bc9`, and `52bcb82`.
+- Next task: Task 6, "Image Service Facade".
+- Last verified commands after Task 5: `odin test ./skald -collection:gui=. -define:SKALD_RUNA=false` passed with 14 tests, `./build.sh 07_counter` passed, and `./build.sh 08_text_input` passed.
+- Current branch: `main`, with `HEAD` at `52bcb82`.
 - Dirty worktree items to preserve: `.gitmodules` and `karl2d` are staged additions that predate this plan execution, and `.superpowers/` is untracked. Do not stage, unstage, modify, remove, or include them in commits unless the user explicitly asks.
 - Commit discipline for remaining tasks: always use explicit pathspecs, for example `git commit -m "..." -- skald/file.odin ...`, so unrelated staged files are not committed.
 
@@ -31,6 +34,9 @@ Implemented details that differ from the original task skeleton:
 - Backend wrapper procs in `skald/backend.odin` assert that context, backend, and callbacks are configured before dispatch.
 - `Backend_Text.wrap` and `Backend_Clipboard.get_text` document returned data lifetime.
 - `Fake_Draw_Kind` currently contains only the operations the tests support: `Rect`, `Push_Clip`, and `Pop_Clip`.
+- Renderer backend capabilities intentionally remain `{}` until the matching optional service groups are wired; draw/text service callbacks are available through `Backend.draw` and `Backend.text`.
+- `Render_Context` now owns backend-neutral per-frame layout state: frame size, scale, widget store, overlay queue, and alpha multiplier.
+- Plain text layout/render calls are routed through `Backend_Text`. Rich text wrapping also has a render-context path. Text input geometry and rich-text hit testing still use guarded renderer-only helpers and remain future backend service work.
 - Gamepad-to-UI navigation remains a future desired enhancement. `Gamepad_Navigation` is only a capability flag for now; no navigation mapping is implemented yet.
 
 ## File Structure
@@ -398,7 +404,7 @@ git commit -m "feat: add backend-neutral input capture helpers"
 
 ## Task 3: Existing Renderer Compatibility Facade
 
-Status: next task to execute.
+Status: complete in commits `92a2982` and `61ccfe7`.
 
 **Files:**
 - Modify: `skald/backend.odin`
@@ -428,7 +434,7 @@ pop_clip :: proc(r: ^Render_Context) {
 - Add equivalent assertion-backed helpers or local assertions before dispatching `shadow`, `gradient_rect`, and `set_alpha`; do not introduce unchecked callback dispatch where the existing wrappers already established a defensive pattern.
 - The original Task 3 commit command below is intentionally too broad for the current dirty worktree. Use the updated explicit pathspec command in Step 6.
 
-- [ ] **Step 1: Add failing compatibility test**
+- [x] **Step 1: Add failing compatibility test**
 
 Append to `skald/backend_fake_test.odin`:
 
@@ -442,7 +448,7 @@ render_context_can_hold_existing_renderer_pointer :: proc(t: ^testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run:
 
@@ -452,7 +458,7 @@ odin test ./skald -collection:gui=. -define:SKALD_RUNA=false
 
 Expected: FAIL because `renderer_backend` does not exist.
 
-- [ ] **Step 3: Rename existing Vulkan draw procs internally**
+- [x] **Step 3: Rename existing Vulkan draw procs internally**
 
 In `skald/draw.odin`, rename current concrete draw procs:
 
@@ -490,7 +496,7 @@ draw_gradient_rect :: proc(
 }
 ```
 
-- [ ] **Step 4: Add renderer backend wrappers**
+- [x] **Step 4: Add renderer backend wrappers**
 
 Append to `skald/backend.odin`:
 
@@ -554,7 +560,7 @@ pop_clip :: proc(r: ^Render_Context) {
 }
 ```
 
-- [ ] **Step 5: Run tests and build one existing example**
+- [x] **Step 5: Run tests and build one existing example**
 
 Run:
 
@@ -565,7 +571,7 @@ odin test ./skald -collection:gui=. -define:SKALD_RUNA=false
 
 Expected: tests PASS. `./build.sh 07_counter` may fail at this point because layout still passes `^Renderer` to draw procs; record the first compile error for Task 4.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add skald/backend.odin skald/draw.odin skald/clip.odin skald/backend_fake_test.odin
@@ -574,12 +580,14 @@ git commit -m "refactor: add renderer backend compatibility facade" -- skald/bac
 
 ## Task 4: Migrate Layout to Render_Context
 
+Status: complete in commits `6455f7e`, `b2f906f`, `200b2d6`, and `36309e9`.
+
 **Files:**
 - Modify: `skald/layout.odin`
 - Modify: `skald/app.odin`
 - Modify: `skald/inspector.odin`
 
-- [ ] **Step 1: Replace layout signatures**
+- [x] **Step 1: Replace layout signatures**
 
 In `skald/layout.odin`, replace these signatures:
 
@@ -601,7 +609,7 @@ render_overlays       :: proc(r: ^Render_Context)
 
 Apply the same replacement to every private layout helper in `layout.odin` that only needs measuring, drawing, overlays, clips, or alpha.
 
-- [ ] **Step 2: Add Render_Context construction in app loop**
+- [x] **Step 2: Add Render_Context construction in app loop**
 
 In `skald/app.odin`, inside the per-target render block before `app.view`, add:
 
@@ -628,7 +636,7 @@ render_overlays(&rc)
 
 Keep `Ctx.renderer: ^Renderer` unchanged in this task so widgets that measure text through the old field still compile. Text migration happens in Task 5.
 
-- [ ] **Step 3: Update inspector draw calls**
+- [x] **Step 3: Update inspector draw calls**
 
 In `skald/inspector.odin`, keep `inspector_render` on `^Renderer` for now and add a local context:
 
@@ -639,7 +647,7 @@ rc := render_context_from_backend(&backend)
 
 Change inspector draw calls from `draw_rect(r, ...)` and `draw_text(r, ...)` to use `&rc` once Task 5 provides text facade support. In this task, only migrate rect calls that already compile.
 
-- [ ] **Step 4: Build existing examples**
+- [x] **Step 4: Build existing examples**
 
 Run:
 
@@ -650,7 +658,7 @@ Run:
 
 Expected: both build successfully or fail only on text facade signatures that Task 5 addresses. If there are non-text failures, fix this task before continuing.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skald/layout.odin skald/app.odin skald/inspector.odin
@@ -659,6 +667,8 @@ git commit -m "refactor: render layout through backend context"
 
 ## Task 5: Text Service Facade
 
+Status: complete in commits `f8afa6f`, `03ab056`, `53a2579`, `3e65bc9`, and `52bcb82`.
+
 **Files:**
 - Modify: `skald/backend.odin`
 - Modify: `skald/text.odin`
@@ -666,7 +676,7 @@ git commit -m "refactor: render layout through backend context"
 - Modify: `skald/app.odin`
 - Modify: `skald/view.odin`
 
-- [ ] **Step 1: Add fake text test**
+- [x] **Step 1: Add fake text test**
 
 Append to `skald/backend_fake_test.odin`:
 
@@ -688,7 +698,7 @@ fake_measure_text :: proc(state: rawptr, text: string, size: f32, font: Font) ->
 }
 ```
 
-- [ ] **Step 2: Add Render_Context text APIs**
+- [x] **Step 2: Add Render_Context text APIs**
 
 In `skald/text.odin`, keep existing `measure_text`, `draw_text`, `wrap_text`, and `text_ascent` as `^Renderer` compatibility procs. Add context variants:
 
@@ -710,7 +720,7 @@ text_ascent_ctx :: proc(r: ^Render_Context, size: f32, font: Font = 0) -> f32 {
 }
 ```
 
-- [ ] **Step 3: Wire existing renderer text service**
+- [x] **Step 3: Wire existing renderer text service**
 
 Append to `renderer_backend` in `skald/backend.odin`:
 
@@ -748,7 +758,7 @@ renderer_backend_draw_text :: proc(state: rawptr, text: string, x, y: f32, color
 }
 ```
 
-- [ ] **Step 4: Migrate layout text calls**
+- [x] **Step 4: Migrate layout text calls**
 
 In `skald/layout.odin`, replace:
 
@@ -770,7 +780,7 @@ draw_text_ctx(r, ...)
 
 Only change call sites where `r` is now `^Render_Context`.
 
-- [ ] **Step 5: Keep widget builder measurement temporarily on old renderer**
+- [x] **Step 5: Keep widget builder measurement temporarily on old renderer**
 
 In `skald/app.odin`, add a backend-aware render context field to `Ctx`:
 
@@ -826,7 +836,7 @@ ctx_text_ascent :: proc(ctx: ^Ctx($Msg), size: f32, font: Font = 0) -> f32 {
 
 Then use `ctx_measure_text`, `ctx_wrap_text`, and `ctx_text_ascent` at widget builder sites.
 
-- [ ] **Step 6: Run tests and examples**
+- [x] **Step 6: Run tests and examples**
 
 Run:
 
@@ -838,7 +848,7 @@ odin test ./skald -collection:gui=. -define:SKALD_RUNA=false
 
 Expected: tests PASS and both examples build.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add skald/backend.odin skald/text.odin skald/text_runa.odin skald/layout.odin skald/backend_fake_test.odin
@@ -846,6 +856,8 @@ git commit -m "refactor: route layout text through backend service"
 ```
 
 ## Task 6: Image Service Facade
+
+Status: next task to execute.
 
 **Files:**
 - Modify: `skald/backend.odin`

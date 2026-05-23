@@ -634,6 +634,13 @@ image_update_pixels_ctx :: proc(
 	return r.backend.images.update_pixels(r.backend.state, image, w, h, rgba)
 }
 
+image_unload_ctx :: proc(r: ^Render_Context, image: Backend_Image) {
+	assert(r != nil, "image_unload_ctx requires render context")
+	assert(r.backend != nil, "image_unload_ctx requires backend")
+	assert(r.backend.images.unload != nil, "image_unload_ctx requires images.unload callback")
+	r.backend.images.unload(r.backend.state, image)
+}
+
 draw_image_ctx :: proc(
 	r: ^Render_Context,
 	image: Backend_Image,

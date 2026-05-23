@@ -217,6 +217,8 @@ image_context_helpers_dispatch_to_backend :: proc(t: ^testing.T) {
 	testing.expect_value(t, fake.ops[0].kind, Fake_Draw_Kind.Image)
 	testing.expect_value(t, fake.ops[0].rect, Rect{1, 2, 3, 4})
 	testing.expect_value(t, fake.ops[0].fit, Image_Fit.Cover)
+
+	image_unload_ctx(&rc, img)
 }
 
 @(test)

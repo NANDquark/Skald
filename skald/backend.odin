@@ -1,6 +1,14 @@
 package skald
 
+import "core:strings"
+
 Backend_Image :: distinct rawptr
+
+Backend_Image_Handle :: struct {
+	key:   string,
+	path:  bool,
+	owned: bool,
+}
 
 Backend_Capability :: enum {
 	Clipboard,
@@ -296,7 +304,7 @@ renderer_backend_text_span_font :: proc(state: rawptr, base_font: Font, span: Te
 renderer_backend_image_load_path :: proc(state: rawptr, path: string) -> Backend_Image {
 	entry := image_cache_get((^Renderer)(state), path)
 	if entry == nil {return Backend_Image(nil)}
-	return Backend_Image(entry)
+	return renderer_backend_image_handle(path, true)
 }
 
 renderer_backend_image_load_pixels :: proc(
@@ -309,7 +317,7 @@ renderer_backend_image_load_pixels :: proc(
 	if !image_load_pixels(r, name, w, h, rgba) {return Backend_Image(nil)}
 	entry := image_cache_get(r, name)
 	if entry == nil {return Backend_Image(nil)}
-	return Backend_Image(entry)
+	return renderer_backend_image_handle(name, false)
 }
 
 renderer_backend_image_update_pixels :: proc(
@@ -318,14 +326,21 @@ renderer_backend_image_update_pixels :: proc(
 	w, h: u32,
 	rgba: []u8,
 ) -> bool {
-	entry := (^Image_Entry)(rawptr(image))
-	if entry == nil {return false}
-	return image_update_entry_pixels((^Renderer)(state), entry, w, h, rgba)
+	handle := (^Backend_Image_Handle)(rawptr(image))
+	if handle == nil || handle.path {return false}
+	return image_update_pixels((^Renderer)(state), handle.key, w, h, rgba)
 }
 
 renderer_backend_image_unload :: proc(state: rawptr, image: Backend_Image) {
-	// Backend_Image is currently a borrowed handle into the renderer's cache.
-	// The cache still owns lifetime and LRU eviction, so handle unload is a no-op.
+	handle := (^Backend_Image_Handle)(rawptr(image))
+	if handle == nil {return}
+	if !handle.path {
+		image_unload((^Renderer)(state), handle.key)
+	}
+	if handle.owned {
+		delete(handle.key)
+		free(handle)
+	}
 }
 
 renderer_backend_image_draw :: proc(state: rawptr, image: Backend_Image, rect: Rect, tint: Color) {
@@ -339,7 +354,19 @@ renderer_backend_image_draw_fit :: proc(
 	fit: Image_Fit,
 	tint: Color,
 ) -> bool {
-	entry := (^Image_Entry)(rawptr(image))
+	handle := (^Backend_Image_Handle)(rawptr(image))
+	if handle == nil {return false}
+	entry := image_cache_get((^Renderer)(state), handle.key)
 	if entry == nil {return false}
 	return image_draw_entry((^Renderer)(state), entry, rect, fit, tint)
+}
+
+renderer_backend_image_handle :: proc(key: string, path: bool) -> Backend_Image {
+	handle := new(Backend_Image_Handle)
+	handle^ = Backend_Image_Handle {
+		key = strings.clone(key),
+		path = path,
+		owned = true,
+	}
+	return Backend_Image(handle)
 }

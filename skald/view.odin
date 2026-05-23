@@ -1123,6 +1123,22 @@ ctx_wrap_text :: proc(
 	return split_lines(text)
 }
 
+ctx_wrap_rich_text :: proc(
+	ctx:       ^Ctx($Msg),
+	spans:     []Text_Span,
+	base_size: f32,
+	base_font: Font,
+	max_width: f32,
+) -> []Rich_Line {
+	if ctx != nil && ctx.render != nil {
+		return wrap_rich_text_ctx(ctx.render, spans, base_size, base_font, max_width)
+	}
+	if ctx != nil && ctx.renderer != nil {
+		return wrap_rich_text(ctx.renderer, spans, base_size, base_font, max_width)
+	}
+	return wrap_rich_text(nil, spans, base_size, base_font, max_width)
+}
+
 ctx_text_ascent :: proc(ctx: ^Ctx($Msg), size: f32, font: Font = 0) -> f32 {
 	if ctx != nil && ctx.render != nil {
 		return text_ascent_ctx(ctx.render, size, font)
@@ -1231,7 +1247,7 @@ rich_text :: proc(
 	// wrap walk needed). wrap_rich_text returns at least one line even
 	// for empty input so view_size can always read lines[0].height.
 	resolved_size := size if size > 0 else 14
-	lines := wrap_rich_text(ctx.renderer, copied, resolved_size, font, max_width)
+	lines := ctx_wrap_rich_text(ctx, copied, resolved_size, font, max_width)
 	return View_Rich_Text{
 		spans     = copied,
 		lines     = lines,
@@ -1289,11 +1305,11 @@ rich_text_selectable :: proc(
 	copied := make([]Text_Span, len(spans), context.temp_allocator)
 	copy(copied, spans)
 	resolved_size := size if size > 0 else 14
-	lines := wrap_rich_text(ctx.renderer, copied, resolved_size, font, max_width)
+	lines := ctx_wrap_rich_text(ctx, copied, resolved_size, font, max_width)
 
 	hovered := rect_hovered(ctx, st.last_rect)
 
-	if hovered && ctx.input.mouse_pressed[.Left] {
+	if hovered && ctx.input.mouse_pressed[.Left] && ctx.renderer != nil {
 		byte_pos := rich_text_hit_test(ctx.renderer, copied, lines, resolved_size, font,
 			st.last_rect, ctx.input.mouse_pos)
 		clicks := ctx.input.mouse_click_count[.Left]
@@ -1317,7 +1333,7 @@ rich_text_selectable :: proc(
 		focused = true
 	}
 
-	if st.mouse_selecting && ctx.input.mouse_buttons[.Left] {
+	if st.mouse_selecting && ctx.input.mouse_buttons[.Left] && ctx.renderer != nil {
 		byte_pos := rich_text_hit_test(ctx.renderer, copied, lines, resolved_size, font,
 			st.last_rect, ctx.input.mouse_pos)
 		st.cursor_pos = byte_pos
@@ -1410,7 +1426,7 @@ rich_text_selectable_links :: proc(
 	copied := make([]Text_Span, len(spans), context.temp_allocator)
 	copy(copied, spans)
 	resolved_size := size if size > 0 else 14
-	lines := wrap_rich_text(ctx.renderer, copied, resolved_size, font, max_width)
+	lines := ctx_wrap_rich_text(ctx, copied, resolved_size, font, max_width)
 
 	hovered := rect_hovered(ctx, st.last_rect)
 
@@ -1426,7 +1442,7 @@ rich_text_selectable_links :: proc(
 
 	now_ns := time.now()._nsec
 
-	if hovered && ctx.input.mouse_pressed[.Left] {
+	if hovered && ctx.input.mouse_pressed[.Left] && ctx.renderer != nil {
 		byte_pos := rich_text_hit_test(ctx.renderer, copied, lines, resolved_size, font,
 			st.last_rect, ctx.input.mouse_pos)
 		clicks := ctx.input.mouse_click_count[.Left]
@@ -1468,7 +1484,7 @@ rich_text_selectable_links :: proc(
 
 	// Pending-link → drag-selection conversion when the mouse moves
 	// past the threshold while still held down.
-	if st.press_link_idx >= 0 && ctx.input.mouse_buttons[.Left] {
+	if st.press_link_idx >= 0 && ctx.input.mouse_buttons[.Left] && ctx.renderer != nil {
 		dx := abs(ctx.input.mouse_pos.x - st.press_pos.x)
 		dy := abs(ctx.input.mouse_pos.y - st.press_pos.y)
 		if dx + dy > DRAG_THRESHOLD {
@@ -1482,7 +1498,7 @@ rich_text_selectable_links :: proc(
 		}
 	}
 
-	if st.mouse_selecting && ctx.input.mouse_buttons[.Left] {
+	if st.mouse_selecting && ctx.input.mouse_buttons[.Left] && ctx.renderer != nil {
 		byte_pos := rich_text_hit_test(ctx.renderer, copied, lines, resolved_size, font,
 			st.last_rect, ctx.input.mouse_pos)
 		st.cursor_pos = byte_pos
@@ -1780,6 +1796,16 @@ rich_span_font :: proc(r: ^Renderer, base_font: Font, sp: Text_Span) -> Font {
 	if sp.italic                       { return r.text.italic_font      }
 	if base_font != 0                  { return base_font               }
 	return r.text.default_font
+}
+
+@(private)
+rich_span_font_ctx :: proc(r: ^Render_Context, base_font: Font, sp: Text_Span) -> Font {
+	if sp.font != 0 { return sp.font }
+	if r != nil && r.backend != nil && r.backend.text.span_font != nil {
+		return r.backend.text.span_font(r.backend.state, base_font, sp)
+	}
+	if base_font != 0 { return base_font }
+	return 0
 }
 
 // rich_span_color falls back to the widget's `base` colour when the

@@ -86,6 +86,7 @@ Backend_Text :: struct {
 	wrap:      proc(state: rawptr, text: string, max_width, size: f32, font: Font) -> []string,
 	ascent:    proc(state: rawptr, size: f32, font: Font) -> f32,
 	draw:      proc(state: rawptr, text: string, x, y: f32, color: Color, size: f32, font: Font),
+	span_font: proc(state: rawptr, base_font: Font, span: Text_Span) -> Font,
 }
 
 Backend_Images :: struct {
@@ -195,6 +196,7 @@ renderer_backend :: proc(r: ^Renderer) -> Backend {
 			wrap = renderer_backend_text_wrap,
 			ascent = renderer_backend_text_ascent,
 			draw = renderer_backend_text_draw,
+			span_font = renderer_backend_text_span_font,
 		},
 	}
 }
@@ -270,4 +272,8 @@ renderer_backend_text_draw :: proc(
 	font: Font,
 ) {
 	draw_text((^Renderer)(state), text, x, y, color, size, font)
+}
+
+renderer_backend_text_span_font :: proc(state: rawptr, base_font: Font, span: Text_Span) -> Font {
+	return rich_span_font((^Renderer)(state), base_font, span)
 }

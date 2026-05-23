@@ -1089,3 +1089,158 @@ wrap_rich_text :: proc(
 
 	return lines[:]
 }
+
+wrap_rich_text_ctx :: proc(
+	r:         ^Render_Context,
+	spans:     []Text_Span,
+	base_size: f32,
+	base_font: Font,
+	max_width: f32,
+) -> []Rich_Line {
+	lines: [dynamic]Rich_Line
+	lines.allocator = context.temp_allocator
+
+	default_ascent: f32 = 0
+	default_line_h: f32 = base_size + 4
+	if r != nil {
+		default_ascent = text_ascent_ctx(r, base_size, base_font)
+		_, default_line_h = measure_text_ctx(r, "", base_size, base_font)
+	}
+
+	if r == nil || len(spans) == 0 {
+		append(&lines, Rich_Line{ascent = default_ascent, height = default_line_h})
+		return lines[:]
+	}
+
+	atoms: [dynamic]Rich_Atom
+	atoms.allocator = context.temp_allocator
+	for sp, sp_idx in spans {
+		if len(sp.str) == 0 {continue}
+		fnt := rich_span_font_ctx(r, base_font, sp)
+		sz  := rich_span_size(base_size, sp)
+		asc := text_ascent_ctx(r, sz, fnt)
+		_, lh := measure_text_ctx(r, "", sz, fnt)
+		space_w, _ := measure_text_ctx(r, " ", sz, fnt)
+		s := sp.str
+		i := 0
+		for i < len(s) {
+			ch := s[i]
+			if ch == '\n' {
+				append(&atoms, Rich_Atom{
+					span_idx = sp_idx,
+					byte_start = i, byte_end = i + 1,
+					width = 0, ascent = asc, line_h = lh,
+					kind = .Break,
+				})
+				i += 1
+				continue
+			}
+			if ch == ' ' {
+				append(&atoms, Rich_Atom{
+					span_idx = sp_idx,
+					byte_start = i, byte_end = i + 1,
+					width = space_w, ascent = asc, line_h = lh,
+					kind = .Space,
+				})
+				i += 1
+				continue
+			}
+			word_start := i
+			for i < len(s) && s[i] != ' ' && s[i] != '\n' {i += 1}
+			ww, _ := measure_text_ctx(r, s[word_start:i], sz, fnt)
+			append(&atoms, Rich_Atom{
+				span_idx = sp_idx,
+				byte_start = word_start, byte_end = i,
+				width = ww, ascent = asc, line_h = lh,
+				kind = .Word,
+			})
+		}
+	}
+
+	cur: [dynamic]Rich_Atom
+	cur.allocator = context.temp_allocator
+	cur_w: f32 = 0
+
+	flush :: proc(lines: ^[dynamic]Rich_Line, cur: ^[dynamic]Rich_Atom, default_a, default_h: f32) {
+		for len(cur) > 0 && cur[len(cur) - 1].kind == .Space {
+			pop(cur)
+		}
+		if len(cur) == 0 {
+			append(lines, Rich_Line{ascent = default_a, height = default_h})
+			return
+		}
+		segs: [dynamic]Rich_Segment
+		segs.allocator = context.temp_allocator
+		x: f32 = 0
+		max_a, max_h: f32
+		for atom in cur {
+			if atom.ascent > max_a {max_a = atom.ascent}
+			if atom.line_h > max_h {max_h = atom.line_h}
+			if len(segs) > 0 {
+				last := &segs[len(segs) - 1]
+				if last.span_idx == atom.span_idx && last.byte_end == atom.byte_start {
+					last.byte_end = atom.byte_end
+					last.width += atom.width
+					x += atom.width
+					continue
+				}
+			}
+			append(&segs, Rich_Segment{
+				span_idx   = atom.span_idx,
+				byte_start = atom.byte_start,
+				byte_end   = atom.byte_end,
+				x_offset   = x,
+				width      = atom.width,
+			})
+			x += atom.width
+		}
+		if max_a == 0 {max_a = default_a}
+		if max_h == 0 {max_h = default_h}
+		append(lines, Rich_Line{
+			segments = segs[:],
+			width    = x,
+			ascent   = max_a,
+			height   = max_h,
+		})
+	}
+
+	for atom in atoms {
+		if atom.kind == .Break {
+			flush(&lines, &cur, default_ascent, default_line_h)
+			clear(&cur)
+			cur_w = 0
+			continue
+		}
+		if max_width > 0 && atom.kind == .Word && len(cur) > 0 && cur_w + atom.width > max_width {
+			last_space := -1
+			for j := len(cur) - 1; j >= 0; j -= 1 {
+				if cur[j].kind == .Space {last_space = j; break}
+			}
+			if last_space >= 0 {
+				tail_start := last_space + 1
+				tail: [dynamic]Rich_Atom
+				tail.allocator = context.temp_allocator
+				for j := tail_start; j < len(cur); j += 1 {
+					append(&tail, cur[j])
+				}
+				resize(&cur, last_space + 1)
+				flush(&lines, &cur, default_ascent, default_line_h)
+				clear(&cur)
+				cur_w = 0
+				for t in tail {
+					append(&cur, t)
+					cur_w += t.width
+				}
+			} else {
+				flush(&lines, &cur, default_ascent, default_line_h)
+				clear(&cur)
+				cur_w = 0
+			}
+		}
+		append(&cur, atom)
+		cur_w += atom.width
+	}
+
+	flush(&lines, &cur, default_ascent, default_line_h)
+	return lines[:]
+}

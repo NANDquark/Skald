@@ -477,7 +477,7 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 			baseline := y + ln.ascent
 			for seg in ln.segments {
 				sp := vv.spans[seg.span_idx]
-				fnt := rich_span_font(rr, vv.font, sp)
+				fnt := rich_span_font_ctx(r, vv.font, sp)
 				sz := rich_span_size(base_size, sp)
 				col := rich_span_color(vv.base, sp)
 				x := origin.x + seg.x_offset

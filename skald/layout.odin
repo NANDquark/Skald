@@ -1172,7 +1172,7 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		// boc-next reported on chat rows near the viewport top while
 		// the assistant streams. Rounding to physical px (rather than
 		// logical) keeps the snap correct on HiDPI too.
-		scale := rr.scale if rr.scale > 0 else 1
+		scale := r.scale if r.scale > 0 else 1
 		off = math.floor(off * scale) / scale
 
 		// When the bar will render, shrink the child layout width so

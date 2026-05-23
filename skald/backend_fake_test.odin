@@ -169,6 +169,22 @@ render_context_can_hold_existing_renderer_pointer :: proc(t: ^testing.T) {
 }
 
 @(test)
+render_context_carries_scale :: proc(t: ^testing.T) {
+	fake: Fake_Backend_State
+	backend := fake_backend(&fake)
+	rc := render_context_from_backend(&backend)
+	testing.expect_value(t, rc.scale, f32(1))
+
+	r: Renderer
+	target: Window_Target
+	r.cur = &target
+	r.scale = 1.75
+	renderer_backend := renderer_backend(&r)
+	renderer_context := renderer_render_context(&renderer_backend, &r)
+	testing.expect_value(t, renderer_context.scale, f32(1.75))
+}
+
+@(test)
 renderer_backend_advertises_only_wired_capabilities :: proc(t: ^testing.T) {
 	r: Renderer
 	backend := renderer_backend(&r)

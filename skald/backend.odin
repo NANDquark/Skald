@@ -39,11 +39,12 @@ Render_Context :: struct {
 	widgets:          ^Widget_Store,
 	overlays:         ^[dynamic]Overlay_Entry,
 	alpha_multiplier: f32,
+	scale:            f32,
 }
 
 render_context_from_backend :: proc(backend: ^Backend) -> Render_Context {
 	assert(backend != nil, "render_context_from_backend requires backend")
-	return Render_Context{backend = backend, alpha_multiplier = 1}
+	return Render_Context{backend = backend, alpha_multiplier = 1, scale = 1}
 }
 
 renderer_render_context :: proc(backend: ^Backend, r: ^Renderer) -> Render_Context {
@@ -53,6 +54,7 @@ renderer_render_context :: proc(backend: ^Backend, r: ^Renderer) -> Render_Conte
 	rc.widgets = r.widgets
 	rc.overlays = &r.overlays
 	rc.alpha_multiplier = r.alpha_multiplier
+	rc.scale = r.scale
 	return rc
 }
 

@@ -21,9 +21,10 @@ Current implementation state:
 - Complete: Task 3, committed as `92a2982 refactor: add renderer backend compatibility facade` plus `61ccfe7 test: cover renderer backend compatibility`.
 - Complete: Task 4, committed as `6455f7e refactor: render layout through backend context`, with follow-up fixes `b2f906f`, `200b2d6`, and `36309e9`.
 - Complete: Task 5, committed as `f8afa6f refactor: route layout text through backend service`, with follow-up fixes `03ab056`, `53a2579`, `3e65bc9`, and `52bcb82`.
-- Next task: Task 6, "Image Service Facade".
-- Last verified commands after Task 5: `odin test ./skald -collection:gui=. -define:SKALD_RUNA=false` passed with 14 tests, `./build.sh 07_counter` passed, and `./build.sh 08_text_input` passed.
-- Current branch: `main`, with `HEAD` at `52bcb82`.
+- Complete: Task 6, committed as `acf07df refactor: route view images through backend service`, with follow-up fixes `bf4e59a` and `3c266ce`.
+- Next task: Task 7, "Karl2D Backend Package Skeleton".
+- Last verified commands after Task 6: `odin test ./skald -collection:gui=. -define:SKALD_RUNA=false` passed with 16 tests, `./build.sh 20_image` passed, and `./build.sh 07_counter` passed.
+- Current branch: `main`, with `HEAD` at `3c266ce`.
 - Dirty worktree items to preserve: `.gitmodules` and `karl2d` are staged additions that predate this plan execution, and `.superpowers/` is untracked. Do not stage, unstage, modify, remove, or include them in commits unless the user explicitly asks.
 - Commit discipline for remaining tasks: always use explicit pathspecs, for example `git commit -m "..." -- skald/file.odin ...`, so unrelated staged files are not committed.
 
@@ -37,6 +38,7 @@ Implemented details that differ from the original task skeleton:
 - Renderer backend capabilities intentionally remain `{}` until the matching optional service groups are wired; draw/text service callbacks are available through `Backend.draw` and `Backend.text`.
 - `Render_Context` now owns backend-neutral per-frame layout state: frame size, scale, widget store, overlay queue, and alpha multiplier.
 - Plain text layout/render calls are routed through `Backend_Text`. Rich text wrapping also has a render-context path. Text input geometry and rich-text hit testing still use guarded renderer-only helpers and remain future backend service work.
+- `View_Image` is routed through `Backend_Images`. Renderer image backend handles are stable key-based handles owned by the renderer image cache; path handles may reload after LRU eviction, while pixel-backed handles fail cleanly after eviction until reloaded.
 - Gamepad-to-UI navigation remains a future desired enhancement. `Gamepad_Navigation` is only a capability flag for now; no navigation mapping is implemented yet.
 
 ## File Structure
@@ -857,7 +859,7 @@ git commit -m "refactor: route layout text through backend service"
 
 ## Task 6: Image Service Facade
 
-Status: next task to execute.
+Status: complete in commits `acf07df`, `bf4e59a`, and `3c266ce`.
 
 **Files:**
 - Modify: `skald/backend.odin`
@@ -865,7 +867,7 @@ Status: next task to execute.
 - Modify: `skald/layout.odin`
 - Modify: `skald/view.odin`
 
-- [ ] **Step 1: Add backend image wrappers**
+- [x] **Step 1: Add backend image wrappers**
 
 In `skald/image.odin`, add context variants while keeping existing `^Renderer` APIs:
 
@@ -883,7 +885,7 @@ draw_image_ctx :: proc(r: ^Render_Context, image: Backend_Image, rect: Rect, tin
 }
 ```
 
-- [ ] **Step 2: Add existing renderer image service**
+- [x] **Step 2: Add existing renderer image service**
 
 In `skald/backend.odin`, add to `renderer_backend`:
 
@@ -924,7 +926,7 @@ renderer_backend_image_draw :: proc(state: rawptr, image: Backend_Image, rect: R
 
 The two no-op wrappers are temporary compatibility shims for handle-based APIs. Path-based image rendering still works through existing `View_Image` until the Karl2D adapter uses the handle API.
 
-- [ ] **Step 3: Migrate View_Image render path**
+- [x] **Step 3: Migrate View_Image render path**
 
 In `skald/layout.odin`, when rendering `View_Image`, replace direct Vulkan image cache access with:
 
@@ -939,7 +941,7 @@ if img != nil {
 
 Use the existing target rect and fit calculation already present in the file.
 
-- [ ] **Step 4: Run image example**
+- [x] **Step 4: Run image example**
 
 Run:
 
@@ -949,7 +951,7 @@ Run:
 
 Expected: build succeeds and the example opens with the image visible when run manually.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skald/backend.odin skald/image.odin skald/layout.odin skald/view.odin
@@ -957,6 +959,8 @@ git commit -m "refactor: route view images through backend service"
 ```
 
 ## Task 7: Karl2D Backend Package Skeleton
+
+Status: next task to execute.
 
 **Files:**
 - Create: `skald_karl2d/backend.odin`

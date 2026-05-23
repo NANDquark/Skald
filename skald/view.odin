@@ -3415,9 +3415,9 @@ overlay :: proc(
 // auto-flip logic in layout.odin's View_Overlay renderer. Popover
 // builders use this to produce a mouse_over_overlay hit-test rect that
 // stays aligned with the rendered overlay when the trigger sits near the
-// bottom of the window and the overlay flips above. Needs a live
-// renderer in `ctx` — returns the naive below-rect when ctx.renderer is
-// nil (unit-test path).
+// bottom of the window and the overlay flips above. Needs a live render
+// context or renderer in `ctx` — returns the naive below-rect otherwise
+// (unit-test path).
 overlay_placement_rect :: proc(
 	ctx:        ^Ctx($Msg),
 	anchor:     Rect,
@@ -3425,27 +3425,34 @@ overlay_placement_rect :: proc(
 	placement:  Overlay_Placement = .Below,
 	offset:     [2]f32            = {0, 0},
 ) -> Rect {
+	fb_size: [2]u32
+	if ctx.render != nil {
+		fb_size = ctx.render.frame_size
+	} else if ctx.renderer != nil {
+		fb_size = ctx.renderer.fb_size
+	}
+
 	x := anchor.x + offset.x
 	y: f32
 	switch placement {
 	case .Below:
 		y = anchor.y + anchor.h + offset.y
-		if ctx.renderer != nil {
-			fb_h := f32(ctx.renderer.fb_size.y)
+		if fb_size.y > 0 {
+			fb_h := f32(fb_size.y)
 			if y + child_size.y > fb_h && anchor.y - child_size.y >= 0 {
 				y = anchor.y - child_size.y - offset.y
 			}
 		}
 	case .Above:
 		y = anchor.y - child_size.y - offset.y
-		if ctx.renderer != nil {
-			if y < 0 && anchor.y + anchor.h + child_size.y <= f32(ctx.renderer.fb_size.y) {
+		if fb_size.y > 0 {
+			if y < 0 && anchor.y + anchor.h + child_size.y <= f32(fb_size.y) {
 				y = anchor.y + anchor.h + offset.y
 			}
 		}
 	}
-	if ctx.renderer != nil {
-		fb_w := f32(ctx.renderer.fb_size.x)
+	if fb_size.x > 0 {
+		fb_w := f32(fb_size.x)
 		if x + child_size.x > fb_w { x = fb_w - child_size.x }
 		if x < 0 { x = 0 }
 	}

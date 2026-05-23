@@ -69,6 +69,25 @@ backend_context_records_draws :: proc(t: ^testing.T) {
 }
 
 @(test)
+render_view_draws_rect_through_backend_context :: proc(t: ^testing.T) {
+	fake: Fake_Backend_State
+	defer delete(fake.ops)
+
+	backend := fake_backend(&fake)
+	rc := render_context_from_backend(&backend)
+
+	render_view(&rc, rect({10, 20}, rgb(0x00FF00), 3), {5, 6}, {100, 80})
+
+	if !testing.expect_value(t, len(fake.ops), 1) {
+		return
+	}
+	testing.expect_value(t, fake.ops[0].kind, Fake_Draw_Kind.Rect)
+	testing.expect_value(t, fake.ops[0].rect, Rect{5, 6, 10, 20})
+	testing.expect_value(t, fake.ops[0].color, rgb(0x00FF00))
+	testing.expect_value(t, fake.ops[0].radius, f32(3))
+}
+
+@(test)
 render_context_can_hold_existing_renderer_pointer :: proc(t: ^testing.T) {
 	r: Renderer
 	backend := renderer_backend(&r)

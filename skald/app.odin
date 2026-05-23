@@ -20,33 +20,33 @@ import vk "vendor:vulkan"
 // framework stays strongly typed end-to-end — the `update` proc sees the
 // app's real message union, not a rawptr or an interface.
 App :: struct($State, $Msg: typeid) {
-	title:  string,
-	size:   Size,
-	theme:  Theme,
+	title:                  string,
+	size:                   Size,
+	theme:                  Theme,
 	// labels are the framework-supplied user-visible strings (search
 	// placeholder, picker placeholders, month / weekday names, AM/PM).
 	// Zero-value falls back to `labels_en()` at startup, so existing
 	// apps behave identically to pre-i18n builds. Apps shipping other
 	// locales call `labels_en()` as a seed and override the fields
 	// they need. See `skald/labels.odin`.
-	labels: Labels,
+	labels:                 Labels,
 
 	// init returns the app's starting state. Called once, before the
 	// window opens — don't rely on any renderer or input subsystem.
-	init:   proc() -> State,
+	init:                   proc() -> State,
 
 	// update advances `state` in response to `msg` and returns a
 	// `Command(Msg)` describing any side effects the framework should
 	// perform (timers, follow-up msgs, batched effects). Return `{}`
 	// when no side effect is needed. Must stay synchronous and pure —
 	// all time / IO work belongs in the returned Command.
-	update: proc(state: State, msg: Msg) -> (State, Command(Msg)),
+	update:                 proc(state: State, msg: Msg) -> (State, Command(Msg)),
 
 	// view turns the current state into a declarative View tree. Pure
 	// in the same sense as update: read state, read ctx.input, emit
 	// widgets and Msgs; do not mutate state or talk to the outside
 	// world.
-	view:   proc(state: State, ctx: ^Ctx(Msg)) -> View,
+	view:                   proc(state: State, ctx: ^Ctx(Msg)) -> View,
 
 	// on_system_theme_change fires when the OS flips its light/dark
 	// preference while the app is running. Optional — leave nil to
@@ -62,7 +62,7 @@ App :: struct($State, $Msg: typeid) {
 	// "use `size` and let the WM place the window" — identical to not
 	// setting it, so existing apps keep working. Typical use: deserialize
 	// from disk in `main` and pass here.
-	initial_window_state: Window_State,
+	initial_window_state:   Window_State,
 
 	// on_window_state_change fires whenever the user resizes or moves
 	// the window. Apps persist the new state so the next launch can
@@ -84,7 +84,7 @@ App :: struct($State, $Msg: typeid) {
 	//   window_flags = {.BORDERLESS, .ALWAYS_ON_TOP}  // dock / HUD
 	//   window_flags = {.TRANSPARENT, .RESIZABLE}     // overlay
 	//   window_flags = {.UTILITY}                     // tool window
-	window_flags: sdl3.WindowFlags,
+	window_flags:           sdl3.WindowFlags,
 
 	// on_window_open fires once after the SDL window is created and
 	// before the render loop starts. The callback receives the live
@@ -94,7 +94,7 @@ App :: struct($State, $Msg: typeid) {
 	// needs to set platform properties Skald doesn't wrap (dock type,
 	// struts, level, shadow, etc.). Purely additive; no Msg round-trip.
 	// Optional — leave nil to skip.
-	on_window_open: proc(w: ^Window),
+	on_window_open:         proc(w: ^Window),
 
 	// always_redraw opts out of lazy redraw and forces a render every
 	// frame. The default (false) is right for most apps — Skald idles at
@@ -105,7 +105,7 @@ App :: struct($State, $Msg: typeid) {
 	// timers, or any custom paint that can't be expressed as deadline
 	// requests via `widget_request_frame_at`. Honoured by every target;
 	// also blocks the idle `WaitEventTimeout` so the run loop spins.
-	always_redraw: bool,
+	always_redraw:          bool,
 
 	// on_window_focus_lost fires once when a window stops being the
 	// foreground window (user clicked another app, switched workspaces,
@@ -115,7 +115,7 @@ App :: struct($State, $Msg: typeid) {
 	// on click-away — return a Msg that flips your "is popover open"
 	// state or fires `cmd_close_window`. Optional; nil means "ignore
 	// focus changes."
-	on_window_focus_lost: proc(window: Window_Id) -> Msg,
+	on_window_focus_lost:   proc(window: Window_Id) -> Msg,
 }
 
 // Window_State captures everything needed to restore a window's
@@ -145,24 +145,24 @@ Window_State :: struct {
 // their message factories typed: `skald.button(ctx, "Save", Msg.Save)`
 // stays strongly typed end-to-end rather than routing through `any`.
 Ctx :: struct($Msg: typeid) {
-	theme:   ^Theme,
-	labels:  ^Labels,
-	input:   ^Input,
-	msgs:    ^[dynamic]Msg,
-	widgets: ^Widget_Store,
+	theme:      ^Theme,
+	labels:     ^Labels,
+	input:      ^Input,
+	msgs:       ^[dynamic]Msg,
+	widgets:    ^Widget_Store,
 	// renderer is threaded through so widgets that need to measure text
 	// during their builder (e.g. click-to-position a caret, compute a
 	// selection highlight) can call `measure_text` without buffering the
 	// request to render-time. It's nil outside of `run` — unit tests
 	// constructing a Ctx by hand don't need a live GPU context.
-	renderer: ^Renderer,
+	renderer:   ^Renderer,
 
 	// window identifies which window this view call is for. Single-window
 	// apps never need to inspect it — it always equals `main_window` (the
 	// id of the primary window). Multi-window apps compare against ids
 	// returned from `cmd_open_window` so one `view` proc can switch on id
 	// to render different subtrees in each window.
-	window:   Window_Id,
+	window:     Window_Id,
 
 	// breakpoint classifies the *window's* current width into Compact /
 	// Regular / Wide bands. App-level shape choices ("show the sidebar?"
@@ -193,8 +193,10 @@ Breakpoint :: enum {
 @(private)
 breakpoint_for_width :: proc(w: f32) -> Breakpoint {
 	switch {
-	case w < 600:  return .Compact
-	case w < 1100: return .Regular
+	case w < 600:
+		return .Compact
+	case w < 1100:
+		return .Regular
 	}
 	return .Wide
 }
@@ -229,14 +231,14 @@ send :: proc(ctx: ^Ctx($Msg), m: Msg) {
 //     )
 map_msg :: proc(
 	parent_ctx: ^Ctx($Parent_Msg),
-	sub_state:  $Sub_State,
-	sub_view:   proc(Sub_State, ^Ctx($Sub_Msg)) -> View,
-	to_parent:  proc(Sub_Msg) -> Parent_Msg,
+	sub_state: $Sub_State,
+	sub_view: proc(_: Sub_State, _: ^Ctx($Sub_Msg)) -> View,
+	to_parent: proc(_: Sub_Msg) -> Parent_Msg,
 ) -> View {
 	sub_msgs := new([dynamic]Sub_Msg, context.temp_allocator)
 	sub_msgs^ = make([dynamic]Sub_Msg, context.temp_allocator)
 
-	sub_ctx := Ctx(Sub_Msg){
+	sub_ctx := Ctx(Sub_Msg) {
 		theme      = parent_ctx.theme,
 		labels     = parent_ctx.labels,
 		input      = parent_ctx.input,
@@ -249,7 +251,7 @@ map_msg :: proc(
 
 	v := sub_view(sub_state, &sub_ctx)
 
-	for m in sub_msgs^ { send(parent_ctx, to_parent(m)) }
+	for m in sub_msgs^ {send(parent_ctx, to_parent(m))}
 	return v
 }
 
@@ -300,15 +302,15 @@ map_msg :: proc(
 // filters reshuffle the visible window.
 map_msg_for :: proc(
 	parent_ctx: ^Ctx($Parent_Msg),
-	payload:    $Payload,
-	sub_state:  $Sub_State,
-	sub_view:   proc(Sub_State, ^Ctx($Sub_Msg)) -> View,
-	to_parent:  proc(payload: Payload, sub_msg: Sub_Msg) -> Parent_Msg,
+	payload: $Payload,
+	sub_state: $Sub_State,
+	sub_view: proc(_: Sub_State, _: ^Ctx($Sub_Msg)) -> View,
+	to_parent: proc(payload: Payload, sub_msg: Sub_Msg) -> Parent_Msg,
 ) -> View {
 	sub_msgs := new([dynamic]Sub_Msg, context.temp_allocator)
 	sub_msgs^ = make([dynamic]Sub_Msg, context.temp_allocator)
 
-	sub_ctx := Ctx(Sub_Msg){
+	sub_ctx := Ctx(Sub_Msg) {
 		theme      = parent_ctx.theme,
 		labels     = parent_ctx.labels,
 		input      = parent_ctx.input,
@@ -321,7 +323,7 @@ map_msg_for :: proc(
 
 	v := sub_view(sub_state, &sub_ctx)
 
-	for m in sub_msgs^ { send(parent_ctx, to_parent(payload, m)) }
+	for m in sub_msgs^ {send(parent_ctx, to_parent(payload, m))}
 	return v
 }
 
@@ -335,10 +337,10 @@ map_msg_for :: proc(
 // primary's platform window instead.
 @(private)
 drain_window_ops :: proc(
-	r:          ^Renderer,
-	ops:        ^[dynamic]Window_Op($Msg),
-	msgs:       ^[dynamic]Msg,
-	close_reg:  ^[dynamic]Window_Close_Reg(Msg),
+	r: ^Renderer,
+	ops: ^[dynamic]Window_Op($Msg),
+	msgs: ^[dynamic]Msg,
+	close_reg: ^[dynamic]Window_Close_Reg(Msg),
 	open_clear: Color,
 ) {
 	for op in ops {
@@ -352,7 +354,7 @@ drain_window_ops :: proc(
 				continue
 			}
 			new_w^ = w
-			if op.desc.on_open != nil { op.desc.on_open(new_w) }
+			if op.desc.on_open != nil {op.desc.on_open(new_w)}
 
 			// New target carries its own widget store + batch. The
 			// platform `^Window` is heap-allocated (unlike the primary
@@ -360,9 +362,9 @@ drain_window_ops :: proc(
 			// it owned so `renderer_destroy` and
 			// `drain_window_ops`.Close can free it correctly.
 			target := new(Window_Target)
-			target.platform       = new_w
+			target.platform = new_w
 			target.platform_owned = true
-			target.widgets        = new(Widget_Store)
+			target.widgets = new(Widget_Store)
 			widget_store_init(target.widgets)
 
 			// Vulkan surface for the new window, then swapchain + sync
@@ -420,7 +422,7 @@ drain_window_ops :: proc(
 			// transition-to-PRESENT_SRC do the work.
 			r.cur = target
 			oc := open_clear
-			if target.platform.transparent { oc.a = 0 }
+			if target.platform.transparent {oc.a = 0}
 			if frame_begin(r, target.platform, oc) {
 				frame_end(r)
 			}
@@ -439,24 +441,24 @@ drain_window_ops :: proc(
 			}
 
 		case .Close:
-			if len(r.targets) == 0 { continue }
+			if len(r.targets) == 0 {continue}
 			primary := r.targets[0]
 			// Can't close the primary — app uses its window's X button
 			// or should_close for that.
-			if Window_Id(primary) == op.id { continue }
+			if Window_Id(primary) == op.id {continue}
 
 			// Find the target by id (pointer equality).
 			idx := -1
 			for t, i in r.targets {
-				if Window_Id(t) == op.id { idx = i; break }
+				if Window_Id(t) == op.id {idx = i; break}
 			}
-			if idx < 0 { continue }
+			if idx < 0 {continue}
 
 			target := r.targets[idx]
 			dispatch_window_close(close_reg, msgs, Window_Id(target))
 
 			// Serialize with any in-flight GPU work tied to this surface.
-			if r.device != nil { vk.DeviceWaitIdle(r.device) }
+			if r.device != nil {vk.DeviceWaitIdle(r.device)}
 
 			prev := r.cur
 			r.cur = target
@@ -493,8 +495,8 @@ drain_window_ops :: proc(
 @(private)
 dispatch_window_close :: proc(
 	close_reg: ^[dynamic]Window_Close_Reg($Msg),
-	msgs:      ^[dynamic]Msg,
-	id:        Window_Id,
+	msgs: ^[dynamic]Msg,
+	id: Window_Id,
 ) {
 	for r, i in close_reg {
 		if r.id == id {
@@ -514,14 +516,14 @@ dispatch_window_close :: proc(
 // `skald.col` / `skald.row` / `skald.clip` builders without leaking.
 run :: proc(app: App($State, $Msg)) {
 	w, ok := window_open(app.title, app.size, app.initial_window_state, app.window_flags)
-	if !ok { return }
+	if !ok {return}
 	defer window_close(&w)
 
 	// Post-create native-tweaks hook. Fires once, before any render work,
 	// so apps can set X11 window types, macOS window levels, etc. without
 	// forking Skald. The callback sees the live `^Window` and can
 	// extract the underlying `^sdl3.Window` via `w.handle`.
-	if app.on_window_open != nil { app.on_window_open(&w) }
+	if app.on_window_open != nil {app.on_window_open(&w)}
 
 	// Track the last state we reported via on_window_state_change so
 	// we only dispatch on actual changes, not every frame the pump
@@ -529,15 +531,15 @@ run :: proc(app: App($State, $Msg)) {
 	last_window_state := app.initial_window_state
 
 	r: Renderer
-	if !renderer_init(&r, &w) { return }
+	if !renderer_init(&r, &w) {return}
 	defer renderer_destroy(&r)
 
-	th    := app.theme
+	th := app.theme
 	// Seed default English labels when the caller didn't supply any.
 	// `Labels{}` has all-empty strings which would render blank
 	// placeholders and blank month/weekday headers.
 	lbls := app.labels
-	if len(lbls.month_names[0]) == 0 { lbls = labels_en() }
+	if len(lbls.month_names[0]) == 0 {lbls = labels_en()}
 	state := app.init()
 
 	msgs: [dynamic]Msg
@@ -576,7 +578,7 @@ run :: proc(app: App($State, $Msg)) {
 	// we acquire the nbio thread-local event loop once here and release
 	// at shutdown. `io` tracks every in-flight operation; its slots hold
 	// stable pointers that the raw-ptr-typed nbio callbacks write into.
-	if err := nbio.acquire_thread_event_loop(); err != nil { return }
+	if err := nbio.acquire_thread_event_loop(); err != nil {return}
 	defer nbio.release_thread_event_loop()
 
 	io: Io_State(Msg)
@@ -607,10 +609,10 @@ run :: proc(app: App($State, $Msg)) {
 	// through the wait below produces the same visible effect without
 	// a real msg round-trip — we just unblock the event wait.
 	CARET_BLINK_PERIOD :: time.Millisecond * 500
-	IDLE_WAIT_MAX      :: time.Millisecond * 100
+	IDLE_WAIT_MAX :: time.Millisecond * 100
 	first_frame := true
 	last_render := time.now()
-	had_focus   := false
+	had_focus := false
 	// Set true when the previous iteration's update loop ran any msg.
 	// State may have changed without any input event to trigger the next
 	// render, so we force a render this iteration to paint the new state.
@@ -625,11 +627,10 @@ run :: proc(app: App($State, $Msg)) {
 	// stdout. Useful for perf CI and for the published-benchmarks doc.
 	// Zero when unset → normal operation, no overhead.
 	bench_frames_target := _bench_frames_from_env()
-	bench_frames_seen   := 0
-	bench_times         := make([dynamic]f64, 0,
-		bench_frames_target if bench_frames_target > 0 else 0)
+	bench_frames_seen := 0
+	bench_times := make([dynamic]f64, 0, bench_frames_target if bench_frames_target > 0 else 0)
 	defer delete(bench_times)
-	bench_rss_start_kb  := _bench_rss_kb()
+	bench_rss_start_kb := _bench_rss_kb()
 
 	for !w.should_close {
 		// Multi-window event pump: collect every open target's platform
@@ -637,7 +638,7 @@ run :: proc(app: App($State, $Msg)) {
 		// then let the dispatcher route SDL events by windowID. With
 		// only the primary open it's identical to `window_pump(&w)`.
 		plats := make([dynamic]^Window, 0, len(r.targets), context.temp_allocator)
-		for t in r.targets { append(&plats, t.platform) }
+		for t in r.targets {append(&plats, t.platform)}
 		windows_pump(plats[:])
 
 		// Focus-lost dispatch. Fires once per target whose window
@@ -669,7 +670,7 @@ run :: proc(app: App($State, $Msg)) {
 					// pointer to the freed target) would be dangling.
 					dispatch_window_close(&close_reg, &msgs, Window_Id(t))
 
-					if r.device != nil { vk.DeviceWaitIdle(r.device) }
+					if r.device != nil {vk.DeviceWaitIdle(r.device)}
 					prev := r.cur
 					r.cur = t
 					target_vk_destroy(&r, t, &r.pipeline)
@@ -745,8 +746,7 @@ run :: proc(app: App($State, $Msg)) {
 		// this tick its Msg is delivered to update right now.
 		thread_fired := thread_pool_drain(&tpool, &msgs)
 
-		caret_blink_due := had_focus &&
-			time.since(last_render) >= CARET_BLINK_PERIOD
+		caret_blink_due := had_focus && time.since(last_render) >= CARET_BLINK_PERIOD
 
 		// Multi-window: any target that's dirty forces a re-render of the
 		// whole frame. Any individual window having pending deadlines,
@@ -756,21 +756,28 @@ run :: proc(app: App($State, $Msg)) {
 		any_events, any_resized, any_widget_deadline := false, false, false
 		now_ns := time.now()._nsec
 		for t in r.targets {
-			if t.platform.had_events { any_events = true }
-			if t.platform.resized    { any_resized = true }
+			if t.platform.had_events {any_events = true}
+			if t.platform.resized {any_resized = true}
 			if t.widgets.next_frame_deadline_ns != 0 &&
 			   now_ns >= t.widgets.next_frame_deadline_ns {
 				any_widget_deadline = true
 			}
 		}
 
-		dirty := first_frame || any_events || any_resized ||
-			w.system_theme_changed || delay_fired || io_fired ||
+		dirty :=
+			first_frame ||
+			any_events ||
+			any_resized ||
+			w.system_theme_changed ||
+			delay_fired ||
+			io_fired ||
 			thread_fired ||
-			len(msgs) > 0 || caret_blink_due || any_widget_deadline ||
+			len(msgs) > 0 ||
+			caret_blink_due ||
+			any_widget_deadline ||
 			state_may_have_changed ||
-			app.always_redraw ||  // opt-out of lazy redraw — DAWs / live video
-			bench_frames_target > 0  // bench mode forces every frame
+			app.always_redraw ||
+			bench_frames_target > 0 // opt-out of lazy redraw — DAWs / live video// bench mode forces every frame
 
 		if !dirty {
 			// No state change this frame — skip the expensive render +
@@ -783,14 +790,14 @@ run :: proc(app: App($State, $Msg)) {
 			if had_focus {
 				blink_rem := CARET_BLINK_PERIOD - time.since(last_render)
 				ms := i32(blink_rem / time.Millisecond)
-				if ms > 0 && ms < wait_ms { wait_ms = ms }
+				if ms > 0 && ms < wait_ms {wait_ms = ms}
 			}
 			now_ns := time.now()._nsec
 			for pd in pending {
 				rem_ns := pd.fire_at_ns - now_ns
-				if rem_ns <= 0 { wait_ms = 0; break }
+				if rem_ns <= 0 {wait_ms = 0; break}
 				ms := i32(rem_ns / i64(time.Millisecond))
-				if ms < wait_ms { wait_ms = ms }
+				if ms < wait_ms {wait_ms = ms}
 			}
 			// Widget-driven animation deadlines (tooltip delay, toast
 			// auto-dismiss, indeterminate progress tick) set during the
@@ -803,10 +810,10 @@ run :: proc(app: App($State, $Msg)) {
 					wait_ms = 0
 				} else {
 					ms := i32(rem_ns / i64(time.Millisecond))
-					if ms < wait_ms { wait_ms = ms }
+					if ms < wait_ms {wait_ms = ms}
 				}
 			}
-			if wait_ms > 0 { _ = sdl3.WaitEventTimeout(nil, wait_ms) }
+			if wait_ms > 0 {_ = sdl3.WaitEventTimeout(nil, wait_ms)}
 			free_all(context.temp_allocator)
 			continue
 		}
@@ -832,7 +839,7 @@ run :: proc(app: App($State, $Msg)) {
 		for t in r.targets {
 			r.cur = t
 			t_widgets := t.widgets
-			t_w       := t.platform
+			t_w := t.platform
 
 			// Capture last frame's modal rect before frame_reset wipes it
 			// so both the focus-trap filter (inside widget_advance_focus)
@@ -867,8 +874,7 @@ run :: proc(app: App($State, $Msg)) {
 			// held aren't touched — only the edge event is swallowed.
 			if modal_rect_prev.w > 0 && modal_rect_prev.h > 0 {
 				mp := t_w.input.mouse_pos
-				if t_w.input.mouse_pressed[.Left] &&
-				   !rect_contains_point(modal_rect_prev, mp) {
+				if t_w.input.mouse_pressed[.Left] && !rect_contains_point(modal_rect_prev, mp) {
 					// Popovers anchored inside the dialog (color_picker's
 					// HSV grid, select dropdown, etc.) can spill outside
 					// the card. Their cards stamp into overlay_rects_prev,
@@ -876,10 +882,10 @@ run :: proc(app: App($State, $Msg)) {
 					// dialog's content layer and must pass through.
 					over_popover := false
 					for rr in t_widgets.overlay_rects_prev {
-						if rect_contains_point(rr, mp) { over_popover = true; break }
+						if rect_contains_point(rr, mp) {over_popover = true; break}
 					}
 					if !over_popover {
-						t_w.input.mouse_pressed[.Left]  = false
+						t_w.input.mouse_pressed[.Left] = false
 						t_w.input.mouse_released[.Left] = false
 					}
 				}
@@ -902,9 +908,11 @@ run :: proc(app: App($State, $Msg)) {
 			// theme's opaque bg fills the swapchain on every frame and the
 			// .TRANSPARENT flag does nothing visible.
 			clear_color := th.color.bg
-			if t_w.transparent { clear_color.a = 0 }
+			if t_w.transparent {clear_color.a = 0}
 			if frame_begin(&r, t_w, clear_color) {
-				ctx := Ctx(Msg){
+				backend := renderer_backend(&r)
+				rc := render_context_from_backend(&backend)
+				ctx := Ctx(Msg) {
 					theme      = &th,
 					labels     = &lbls,
 					input      = &t_w.input,
@@ -916,11 +924,11 @@ run :: proc(app: App($State, $Msg)) {
 				}
 				v := app.view(state, &ctx)
 				win_size := [2]f32{f32(t_w.size_logical.x), f32(t_w.size_logical.y)}
-				render_view(&r, v, {0, 0}, win_size)
+				render_view(&rc, v, {0, 0}, win_size)
 				// Overlays (dropdowns, tooltips, menus) drew nothing during
 				// the main pass — they only queued themselves. Drain the
 				// queue now so they sit on top in draw order.
-				render_overlays(&r)
+				render_overlays(&rc)
 				// Debug inspector paints on the primary window only — its
 				// hover readout is app-level info; drawing it on every
 				// popover and HUD would be noise.
@@ -960,11 +968,7 @@ run :: proc(app: App($State, $Msg)) {
 			}
 			bench_frames_seen += 1
 			if bench_frames_seen >= bench_frames_target {
-				_bench_emit_summary(
-					bench_times[:],
-					bench_rss_start_kb,
-					_bench_rss_kb(),
-				)
+				_bench_emit_summary(bench_times[:], bench_rss_start_kb, _bench_rss_kb())
 				w.should_close = true
 			}
 		}
@@ -987,7 +991,7 @@ run :: proc(app: App($State, $Msg)) {
 		for len(msgs) > 0 {
 			state_may_have_changed = true
 			frame_msgs := make([dynamic]Msg, context.temp_allocator)
-			for msg in msgs { append(&frame_msgs, msg) }
+			for msg in msgs {append(&frame_msgs, msg)}
 			clear(&msgs)
 			for msg in frame_msgs {
 				new_state, cmd := app.update(state, msg)
@@ -1013,9 +1017,9 @@ run :: proc(app: App($State, $Msg)) {
 @(private)
 _bench_frames_from_env :: proc() -> int {
 	s := os.get_env("SKALD_BENCH_FRAMES", context.temp_allocator)
-	if len(s) == 0 { return 0 }
+	if len(s) == 0 {return 0}
 	n, ok := strconv.parse_int(s)
-	if !ok || n < 0 { return 0 }
+	if !ok || n < 0 {return 0}
 	return n
 }
 
@@ -1027,15 +1031,15 @@ _bench_frames_from_env :: proc() -> int {
 _bench_rss_kb :: proc() -> i64 {
 	when ODIN_OS == .Linux {
 		data, err := os.read_entire_file("/proc/self/statm", context.temp_allocator)
-		if err != nil { return -1 }
+		if err != nil {return -1}
 		s := string(data)
 		sp := strings.index_byte(s, ' ')
-		if sp < 0 || sp+1 >= len(s) { return -1 }
-		rest := s[sp+1:]
+		if sp < 0 || sp + 1 >= len(s) {return -1}
+		rest := s[sp + 1:]
 		sp2 := strings.index_byte(rest, ' ')
-		if sp2 < 0 { return -1 }
+		if sp2 < 0 {return -1}
 		pages, pok := strconv.parse_i64(rest[:sp2])
-		if !pok { return -1 }
+		if !pok {return -1}
 		return pages * 4 // assume 4 KB pages — true on every Linux we target
 	} else {
 		return -1
@@ -1058,12 +1062,12 @@ _bench_emit_summary :: proc(times_ms: []f64, rss_start_kb, rss_end_kb: i64) {
 	slice.sort(sorted)
 
 	sum: f64 = 0
-	for v in sorted { sum += v }
+	for v in sorted {sum += v}
 	avg := sum / f64(len(sorted))
 
 	pct :: proc(s: []f64, p: f64) -> f64 {
 		idx := int(p * f64(len(s)))
-		if idx >= len(s) { idx = len(s) - 1 }
+		if idx >= len(s) {idx = len(s) - 1}
 		return s[idx]
 	}
 
@@ -1075,7 +1079,7 @@ _bench_emit_summary :: proc(times_ms: []f64, rss_start_kb, rss_end_kb: i64) {
 		pct(sorted, 0.95),
 		pct(sorted, 0.99),
 		sorted[0],
-		sorted[len(sorted)-1],
+		sorted[len(sorted) - 1],
 		1000.0 / avg,
 		rss_start_kb,
 		rss_end_kb,

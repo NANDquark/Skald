@@ -3,6 +3,61 @@ package skald
 import "core:math"
 import "core:strings"
 
+view_height_for_width :: proc {
+	render_context_view_height_for_width,
+	renderer_view_height_for_width,
+}
+
+view_size :: proc {
+	render_context_view_size,
+	renderer_view_size,
+}
+
+render_view :: proc {
+	render_context_render_view,
+	renderer_render_view,
+}
+
+render_overlays :: proc {
+	render_context_render_overlays,
+	renderer_render_overlays,
+}
+
+@(private)
+render_context_renderer :: proc(r: ^Render_Context) -> ^Renderer {
+	assert(r != nil, "layout render requires render context")
+	assert(r.backend != nil, "layout render requires backend")
+	return (^Renderer)(r.backend.state)
+}
+
+@(private)
+renderer_view_height_for_width :: proc(r: ^Renderer, v: View, width: f32) -> f32 {
+	backend := renderer_backend(r)
+	rc := render_context_from_backend(&backend)
+	return render_context_view_height_for_width(&rc, v, width)
+}
+
+@(private)
+renderer_view_size :: proc(r: ^Renderer, v: View) -> [2]f32 {
+	backend := renderer_backend(r)
+	rc := render_context_from_backend(&backend)
+	return render_context_view_size(&rc, v)
+}
+
+@(private)
+renderer_render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
+	backend := renderer_backend(r)
+	rc := render_context_from_backend(&backend)
+	render_context_render_view(&rc, v, origin, size)
+}
+
+@(private)
+renderer_render_overlays :: proc(r: ^Renderer) {
+	backend := renderer_backend(r)
+	rc := render_context_from_backend(&backend)
+	render_context_render_overlays(&rc)
+}
+
 // layout.odin is Phase 4's constraint-driven layout walker. Every View has
 // two sizes: its *intrinsic* size (what the node would take if unconstrained)
 // and its *assigned* size (what its parent hands down after flex and
@@ -31,14 +86,14 @@ import "core:strings"
 // inside a sub-column would render its real wrapped height but the
 // sub-column would only have been allocated single-line height,
 // causing the wrap_row to overflow into the next sibling.
-view_height_for_width :: proc(r: ^Renderer, v: View, width: f32) -> f32 {
+render_context_view_height_for_width :: proc(r: ^Render_Context, v: View, width: f32) -> f32 {
 	#partial switch vv in v {
 	case View_Wrap_Row:
 		w := vv.width if vv.width > 0 else width
 		return wrap_row_measure_height(r, vv, w)
 
 	case View_Stack:
-		if vv.height > 0 { return vv.height }
+		if vv.height > 0 {return vv.height}
 		if vv.direction != .Column {
 			// Row stacks don't propagate the parent's width into per-
 			// child height-for-width — children are laid out along the
@@ -46,14 +101,14 @@ view_height_for_width :: proc(r: ^Renderer, v: View, width: f32) -> f32 {
 			return view_size(r, v).y
 		}
 		inner_w := width - 2 * vv.padding
-		if inner_w < 0 { inner_w = 0 }
+		if inner_w < 0 {inner_w = 0}
 
 		sum: f32 = 0
 		for child, i in vv.children {
 			ch_w := view_size(r, child).x
-			if vv.cross_align == .Stretch { ch_w = inner_w }
+			if vv.cross_align == .Stretch {ch_w = inner_w}
 			sum += view_height_for_width(r, child, ch_w)
-			if i < len(vv.children) - 1 { sum += vv.spacing }
+			if i < len(vv.children) - 1 {sum += vv.spacing}
 		}
 		sum += 2 * vv.padding
 		return sum
@@ -77,7 +132,8 @@ view_height_for_width :: proc(r: ^Renderer, v: View, width: f32) -> f32 {
 // measured against the renderer's fontstash context; stacks recurse to
 // aggregate children. `View_Flex` reports its child's intrinsic — weights
 // only matter once a parent stack has leftover space to distribute.
-view_size :: proc(r: ^Renderer, v: View) -> [2]f32 {
+render_context_view_size :: proc(r: ^Render_Context, v: View) -> [2]f32 {
+	rr := render_context_renderer(r)
 	switch vv in v {
 	case View_Rect:
 		return vv.size
@@ -87,8 +143,8 @@ view_size :: proc(r: ^Renderer, v: View) -> [2]f32 {
 
 	case View_Text:
 		if vv.max_width > 0 {
-			lines := wrap_text(r, vv.str, vv.max_width, vv.size, vv.font)
-			_, lh := measure_text(r, "", vv.size, vv.font)
+			lines := wrap_text(rr, vv.str, vv.max_width, vv.size, vv.font)
+			_, lh := measure_text(rr, "", vv.size, vv.font)
 			return {vv.max_width, lh * f32(len(lines))}
 		}
 		// No-wrap path. Embedded line breaks (\n, \r\n, \r) still
@@ -100,15 +156,15 @@ view_size :: proc(r: ^Renderer, v: View) -> [2]f32 {
 		// stays allocation-free.
 		if strings.contains_any(vv.str, "\n\r") {
 			lines := split_lines(vv.str)
-			_, lh := measure_text(r, "", vv.size, vv.font)
+			_, lh := measure_text(rr, "", vv.size, vv.font)
 			max_w: f32
 			for line in lines {
-				w, _ := measure_text(r, expand_tabs(line), vv.size, vv.font)
-				if w > max_w { max_w = w }
+				w, _ := measure_text(rr, expand_tabs(line), vv.size, vv.font)
+				if w > max_w {max_w = w}
 			}
 			return {max_w, lh * f32(len(lines))}
 		}
-		w, h := measure_text(r, expand_tabs(vv.str), vv.size, vv.font)
+		w, h := measure_text(rr, expand_tabs(vv.str), vv.size, vv.font)
 		return {w, h}
 
 	case View_Rich_Text:
@@ -118,10 +174,10 @@ view_size :: proc(r: ^Renderer, v: View) -> [2]f32 {
 		max_w: f32 = 0
 		total_h: f32 = 0
 		for ln in vv.lines {
-			if ln.width > max_w { max_w = ln.width }
+			if ln.width > max_w {max_w = ln.width}
 			total_h += ln.height
 		}
-		if vv.max_width > 0 && max_w < vv.max_width { max_w = vv.max_width }
+		if vv.max_width > 0 && max_w < vv.max_width {max_w = vv.max_width}
 		return {max_w, total_h}
 
 	case View_Stack:
@@ -129,30 +185,29 @@ view_size :: proc(r: ^Renderer, v: View) -> [2]f32 {
 		// (the equivalent of SizedBox / Container(width:...)). This is
 		// what lets a parent row know how wide a "220-px sidebar" is
 		// regardless of what fill-axis sentinels its children use.
-		if vv.width > 0 && vv.height > 0 { return {vv.width, vv.height} }
+		if vv.width > 0 && vv.height > 0 {return {vv.width, vv.height}}
 
-		main:  f32 = 0
+		main: f32 = 0
 		cross: f32 = 0
 		for child, i in vv.children {
 			cs := view_size(r, child)
-			axis_main  := vv.direction == .Column ? cs.y : cs.x
+			axis_main := vv.direction == .Column ? cs.y : cs.x
 			axis_cross := vv.direction == .Column ? cs.x : cs.y
 
 			// Spacers are main-axis only, so ignore their cross contribution.
 			_, is_spacer := child.(View_Spacer)
-			if !is_spacer { cross = max(cross, axis_cross) }
+			if !is_spacer {cross = max(cross, axis_cross)}
 
 			main += axis_main
-			if i < len(vv.children) - 1 { main += vv.spacing }
+			if i < len(vv.children) - 1 {main += vv.spacing}
 		}
-		main  += 2 * vv.padding
+		main += 2 * vv.padding
 		cross += 2 * vv.padding
 
 		out_x, out_y: f32
-		if vv.direction == .Column { out_x, out_y = cross, main }
-		else                        { out_x, out_y = main, cross }
-		if vv.width  > 0 { out_x = vv.width  }
-		if vv.height > 0 { out_y = vv.height }
+		if vv.direction == .Column {out_x, out_y = cross, main} else {out_x, out_y = main, cross}
+		if vv.width > 0 {out_x = vv.width}
+		if vv.height > 0 {out_y = vv.height}
 		return {out_x, out_y}
 
 	case View_Wrap_Row:
@@ -166,15 +221,15 @@ view_size :: proc(r: ^Renderer, v: View) -> [2]f32 {
 			h := wrap_row_measure_height(r, vv, vv.width)
 			return {vv.width, h}
 		}
-		main:  f32 = 0
+		main: f32 = 0
 		cross: f32 = 0
 		for child, i in vv.children {
 			cs := view_size(r, child)
 			main += cs.x
-			if cs.y > cross { cross = cs.y }
-			if i < len(vv.children) - 1 { main += vv.spacing }
+			if cs.y > cross {cross = cs.y}
+			if i < len(vv.children) - 1 {main += vv.spacing}
 		}
-		main  += 2 * vv.padding
+		main += 2 * vv.padding
 		cross += 2 * vv.padding
 		return {main, cross}
 
@@ -188,9 +243,9 @@ view_size :: proc(r: ^Renderer, v: View) -> [2]f32 {
 		return view_size(r, vv.child^)
 
 	case View_Button:
-		tw, lh := measure_text(r, vv.label, vv.font_size)
+		tw, lh := measure_text(rr, vv.label, vv.font_size)
 		w: f32 = vv.width
-		if w == 0 { w = tw + 2 * vv.padding.x }
+		if w == 0 {w = tw + 2 * vv.padding.x}
 		return {w, lh + 2 * vv.padding.y}
 
 	case View_Text_Input:
@@ -203,9 +258,9 @@ view_size :: proc(r: ^Renderer, v: View) -> [2]f32 {
 		w: f32 = vv.box_size
 		h: f32 = vv.box_size
 		if len(vv.label) > 0 {
-			tw, lh := measure_text(r, vv.label, vv.font_size)
+			tw, lh := measure_text(rr, vv.label, vv.font_size)
 			w += vv.gap + tw
-			if lh > h { h = lh }
+			if lh > h {h = lh}
 		}
 		return {w, h}
 
@@ -213,9 +268,9 @@ view_size :: proc(r: ^Renderer, v: View) -> [2]f32 {
 		w: f32 = vv.box_size
 		h: f32 = vv.box_size
 		if len(vv.label) > 0 {
-			tw, lh := measure_text(r, vv.label, vv.font_size)
+			tw, lh := measure_text(rr, vv.label, vv.font_size)
 			w += vv.gap + tw
-			if lh > h { h = lh }
+			if lh > h {h = lh}
 		}
 		return {w, h}
 
@@ -223,9 +278,9 @@ view_size :: proc(r: ^Renderer, v: View) -> [2]f32 {
 		w: f32 = vv.track_w
 		h: f32 = vv.track_h
 		if len(vv.label) > 0 {
-			tw, lh := measure_text(r, vv.label, vv.font_size)
+			tw, lh := measure_text(rr, vv.label, vv.font_size)
 			w += vv.gap + tw
-			if lh > h { h = lh }
+			if lh > h {h = lh}
 		}
 		return {w, h}
 
@@ -245,7 +300,7 @@ view_size :: proc(r: ^Renderer, v: View) -> [2]f32 {
 		// Same height recipe as button (font + vertical padding).
 		h := vv.font_size + 2 * vv.padding.y
 		w: f32 = vv.width
-		if w == 0 { w = 160 }
+		if w == 0 {w = 160}
 		return {w, h}
 
 	case View_Overlay:
@@ -286,7 +341,7 @@ view_size :: proc(r: ^Renderer, v: View) -> [2]f32 {
 		return {0, 0}
 
 	case View_Link:
-		w, h := measure_text(r, vv.label, vv.font_size)
+		w, h := measure_text(rr, vv.label, vv.font_size)
 		return {w, h}
 
 	case View_Toast:
@@ -319,7 +374,8 @@ view_size :: proc(r: ^Renderer, v: View) -> [2]f32 {
 // parent (equals the view's intrinsic size for leaf nodes inside a
 // Main_Align.Start stack without flex siblings — but differs for flex
 // children and Stretch cross alignment).
-render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
+render_context_render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
+	rr := render_context_renderer(r)
 	switch vv in v {
 	case View_Rect:
 		// A zero on either axis means "fill the assigned size on that
@@ -333,28 +389,34 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 	case View_Gradient_Rect:
 		w := vv.size.x == 0 ? size.x : vv.size.x
 		h := vv.size.y == 0 ? size.y : vv.size.y
-		draw_gradient_rect(r, {origin.x, origin.y, w, h},
-			vv.c_tl, vv.c_tr, vv.c_br, vv.c_bl, vv.radius)
+		draw_gradient_rect(
+			r,
+			{origin.x, origin.y, w, h},
+			vv.c_tl,
+			vv.c_tr,
+			vv.c_br,
+			vv.c_bl,
+			vv.radius,
+		)
 
 	case View_Text:
 		// draw_text takes a baseline y — offset by ascent so the view's
 		// top edge aligns with `origin.y`, matching what view_size reports.
-		ascent := text_ascent(r, vv.size, vv.font)
-		if r.widgets != nil && vv.selectable && vv.id != 0 {
-			widget_record_rect(r.widgets, vv.id,
-				Rect{origin.x, origin.y, size.x, size.y})
+		ascent := text_ascent(rr, vv.size, vv.font)
+		if rr.widgets != nil && vv.selectable && vv.id != 0 {
+			widget_record_rect(rr.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
 		}
 		has_sel := vv.selectable && vv.sel_start != vv.sel_end
 		sel_lo := vv.sel_start if vv.sel_start <= vv.sel_end else vv.sel_end
-		sel_hi := vv.sel_end   if vv.sel_end   >= vv.sel_start else vv.sel_start
+		sel_hi := vv.sel_end if vv.sel_end >= vv.sel_start else vv.sel_start
 
 		// Helper closure equivalent: draws selection rect for one rendered
 		// line if the line's byte range overlaps [sel_lo, sel_hi).
 		// Inlined per branch below because Odin closures aren't a thing.
 
 		if vv.max_width > 0 {
-			lines := wrap_text(r, vv.str, vv.max_width, vv.size, vv.font)
-			_, lh := measure_text(r, "", vv.size, vv.font)
+			lines := wrap_text(rr, vv.str, vv.max_width, vv.size, vv.font)
+			_, lh := measure_text(rr, "", vv.size, vv.font)
 			y := origin.y
 			for line in lines {
 				if has_sel {
@@ -365,18 +427,23 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 							lo_in := max(sel_lo, line_off) - line_off
 							hi_in := min(sel_hi, line_end) - line_off
 							x0: f32 = 0
-							if lo_in > 0 { x0, _ = measure_text(r, line[:lo_in], vv.size, vv.font) }
-							x1, _ := measure_text(r, line[:hi_in], vv.size, vv.font)
-							draw_rect(r, Rect{origin.x + x0, y, x1 - x0, lh}, vv.color_selection, 0)
+							if lo_in > 0 {x0, _ = measure_text(rr, line[:lo_in], vv.size, vv.font)}
+							x1, _ := measure_text(rr, line[:hi_in], vv.size, vv.font)
+							draw_rect(
+								r,
+								Rect{origin.x + x0, y, x1 - x0, lh},
+								vv.color_selection,
+								0,
+							)
 						}
 					}
 				}
-				draw_text(r, line, origin.x, y + ascent, vv.color, vv.size, vv.font)
+				draw_text(rr, line, origin.x, y + ascent, vv.color, vv.size, vv.font)
 				y += lh
 			}
 		} else if strings.contains_any(vv.str, "\n\r") {
 			lines := split_lines(vv.str)
-			_, lh := measure_text(r, "", vv.size, vv.font)
+			_, lh := measure_text(rr, "", vv.size, vv.font)
 			y := origin.y
 			for line in lines {
 				if has_sel {
@@ -387,24 +454,37 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 							lo_in := max(sel_lo, line_off) - line_off
 							hi_in := min(sel_hi, line_end) - line_off
 							x0: f32 = 0
-							if lo_in > 0 { x0, _ = measure_text(r, line[:lo_in], vv.size, vv.font) }
-							x1, _ := measure_text(r, line[:hi_in], vv.size, vv.font)
-							draw_rect(r, Rect{origin.x + x0, y, x1 - x0, lh}, vv.color_selection, 0)
+							if lo_in > 0 {x0, _ = measure_text(rr, line[:lo_in], vv.size, vv.font)}
+							x1, _ := measure_text(rr, line[:hi_in], vv.size, vv.font)
+							draw_rect(
+								r,
+								Rect{origin.x + x0, y, x1 - x0, lh},
+								vv.color_selection,
+								0,
+							)
 						}
 					}
 				}
-				draw_text(r, expand_tabs(line), origin.x, y + ascent, vv.color, vv.size, vv.font)
+				draw_text(rr, expand_tabs(line), origin.x, y + ascent, vv.color, vv.size, vv.font)
 				y += lh
 			}
 		} else {
 			if has_sel {
-				_, lh := measure_text(r, "", vv.size, vv.font)
+				_, lh := measure_text(rr, "", vv.size, vv.font)
 				x0: f32 = 0
-				if sel_lo > 0 { x0, _ = measure_text(r, vv.str[:sel_lo], vv.size, vv.font) }
-				x1, _ := measure_text(r, vv.str[:sel_hi], vv.size, vv.font)
+				if sel_lo > 0 {x0, _ = measure_text(rr, vv.str[:sel_lo], vv.size, vv.font)}
+				x1, _ := measure_text(rr, vv.str[:sel_hi], vv.size, vv.font)
 				draw_rect(r, Rect{origin.x + x0, origin.y, x1 - x0, lh}, vv.color_selection, 0)
 			}
-			draw_text(r, expand_tabs(vv.str), origin.x, origin.y + ascent, vv.color, vv.size, vv.font)
+			draw_text(
+				rr,
+				expand_tabs(vv.str),
+				origin.x,
+				origin.y + ascent,
+				vv.color,
+				vv.size,
+				vv.font,
+			)
 		}
 
 	case View_Rich_Text:
@@ -418,9 +498,9 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		// Widget_State.link_rects for next frame's hover/click hit-
 		// test (consumed by rich_text_links).
 		base_size := vv.size if vv.size > 0 else 14
-		BG_PAD_X     :: f32(3)
-		BG_PAD_Y     :: f32(1)
-		BG_RADIUS    :: f32(3)
+		BG_PAD_X :: f32(3)
+		BG_PAD_Y :: f32(1)
+		BG_RADIUS :: f32(3)
 		UNDERLINE_OFF :: f32(2) // px below baseline
 		// Per-frame link-rect collection. Built up across the segment
 		// walk; stamped to widget state at the end of the render so
@@ -429,23 +509,27 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		link_rects.allocator = context.temp_allocator
 		// Selection state — only meaningful when selectable=true.
 		has_sel := vv.selectable && vv.sel_start != vv.sel_end
-		sel_lo  := vv.sel_start if vv.sel_start <= vv.sel_end else vv.sel_end
-		sel_hi  := vv.sel_end   if vv.sel_end   >= vv.sel_start else vv.sel_start
-		if r.widgets != nil && vv.selectable && vv.id != 0 {
-			widget_record_rect(r.widgets, vv.id,
-				Rect{origin.x, origin.y, size.x, size.y})
+		sel_lo := vv.sel_start if vv.sel_start <= vv.sel_end else vv.sel_end
+		sel_hi := vv.sel_end if vv.sel_end >= vv.sel_start else vv.sel_start
+		if rr.widgets != nil && vv.selectable && vv.id != 0 {
+			widget_record_rect(rr.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
 		}
 		y := origin.y
 		for ln in vv.lines {
 			baseline := y + ln.ascent
 			for seg in ln.segments {
 				sp := vv.spans[seg.span_idx]
-				fnt := rich_span_font(r, vv.font, sp)
-				sz  := rich_span_size(base_size, sp)
+				fnt := rich_span_font(rr, vv.font, sp)
+				sz := rich_span_size(base_size, sp)
 				col := rich_span_color(vv.base, sp)
-				x   := origin.x + seg.x_offset
+				x := origin.x + seg.x_offset
 				if sp.bg.a > 0 {
-					chip := Rect{x - BG_PAD_X, y - BG_PAD_Y, seg.width + 2*BG_PAD_X, ln.height + 2*BG_PAD_Y}
+					chip := Rect {
+						x - BG_PAD_X,
+						y - BG_PAD_Y,
+						seg.width + 2 * BG_PAD_X,
+						ln.height + 2 * BG_PAD_Y,
+					}
 					draw_rect(r, chip, sp.bg, BG_RADIUS)
 				}
 				// Selection highlight — drawn before the glyphs so they
@@ -454,46 +538,55 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 				// may cross multiple segments / spans on the same line).
 				if has_sel {
 					abs_start := rich_seg_absolute_start(vv.spans, seg)
-					seg_len   := seg.byte_end - seg.byte_start
-					abs_end   := abs_start + seg_len
+					seg_len := seg.byte_end - seg.byte_start
+					abs_end := abs_start + seg_len
 					if sel_lo < abs_end && sel_hi > abs_start {
 						lo_in_seg := max(sel_lo, abs_start) - abs_start
-						hi_in_seg := min(sel_hi, abs_end)   - abs_start
+						hi_in_seg := min(sel_hi, abs_end) - abs_start
 						x_lo: f32 = 0
 						if lo_in_seg > 0 {
-							x_lo, _ = measure_text(r, sp.str[seg.byte_start:seg.byte_start + lo_in_seg], sz, fnt)
+							x_lo, _ = measure_text(
+								rr,
+								sp.str[seg.byte_start:seg.byte_start + lo_in_seg],
+								sz,
+								fnt,
+							)
 						}
-						x_hi, _ := measure_text(r, sp.str[seg.byte_start:seg.byte_start + hi_in_seg], sz, fnt)
-						draw_rect(r,
+						x_hi, _ := measure_text(
+							rr,
+							sp.str[seg.byte_start:seg.byte_start + hi_in_seg],
+							sz,
+							fnt,
+						)
+						draw_rect(
+							r,
 							Rect{x + x_lo, y, x_hi - x_lo, ln.height},
-							vv.color_selection, 0)
+							vv.color_selection,
+							0,
+						)
 					}
 				}
 				if seg.byte_end > seg.byte_start && seg.byte_end <= len(sp.str) {
 					sub := sp.str[seg.byte_start:seg.byte_end]
-					draw_text(r, sub, x, baseline, col, sz, fnt)
+					draw_text(rr, sub, x, baseline, col, sz, fnt)
 				}
 				if sp.underline {
-					draw_rect(r,
-						Rect{x, baseline + UNDERLINE_OFF, seg.width, 1},
-						col, 0)
+					draw_rect(r, Rect{x, baseline + UNDERLINE_OFF, seg.width, 1}, col, 0)
 				}
 				if sp.strike {
-					draw_rect(r,
-						Rect{x, baseline - ln.ascent * 0.38, seg.width, 1},
-						col, 0)
+					draw_rect(r, Rect{x, baseline - ln.ascent * 0.38, seg.width, 1}, col, 0)
 				}
 				if len(sp.link) > 0 {
-					append(&link_rects, Link_Rect{
-						rect = Rect{x, y, seg.width, ln.height},
-						link = sp.link,
-					})
+					append(
+						&link_rects,
+						Link_Rect{rect = Rect{x, y, seg.width, ln.height}, link = sp.link},
+					)
 				}
 			}
 			y += ln.height
 		}
-		if r.widgets != nil && vv.id != 0 {
-			link_rects_stamp(r.widgets, vv.id, link_rects[:])
+		if rr.widgets != nil && vv.id != 0 {
+			link_rects_stamp(rr.widgets, vv.id, link_rects[:])
 		}
 
 	case View_Stack:
@@ -508,7 +601,7 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		pop_clip(r)
 
 	case View_Spacer:
-		// Contributes to layout via view_size; nothing to draw.
+	// Contributes to layout via view_size; nothing to draw.
 
 	case View_Flex:
 		// Outside a Stack a flex wrapper just forwards its assigned size.
@@ -520,32 +613,31 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		// Record the rendered rect so next frame's builder can hit-test
 		// against it. nil when the renderer is driven outside the App
 		// loop (e.g. the imperative 02_shapes example).
-		if r.widgets != nil {
-			widget_record_rect(r.widgets, vv.id,
-				Rect{origin.x, origin.y, size.x, size.y})
+		if rr.widgets != nil {
+			widget_record_rect(rr.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
 		}
 
 		bg := vv.color
-		if vv.pressed        { bg = color_tint(bg, 0.15) }
-		else if vv.hover     { bg = color_tint(bg, 0.08) }
+		if vv.pressed {bg = color_tint(bg, 0.15)} else if vv.hover {bg = color_tint(bg, 0.08)}
 
 		draw_rect(r, {origin.x, origin.y, size.x, size.y}, bg, vv.radius)
 
 		if vv.focused {
-			draw_focus_ring(r,
-				{origin.x, origin.y, size.x, size.y},
-				vv.radius, vv.color_focus, bg)
+			draw_focus_ring(r, {origin.x, origin.y, size.x, size.y}, vv.radius, vv.color_focus, bg)
 		}
 
-		tw, lh := measure_text(r, vv.label, vv.font_size)
+		tw, lh := measure_text(rr, vv.label, vv.font_size)
 		tx: f32
 		switch vv.text_align {
-		case .Start:    tx = origin.x + vv.padding.x
-		case .End:      tx = origin.x + size.x - tw - vv.padding.x
-		case .Center, .Stretch: tx = origin.x + (size.x - tw) / 2
+		case .Start:
+			tx = origin.x + vv.padding.x
+		case .End:
+			tx = origin.x + size.x - tw - vv.padding.x
+		case .Center, .Stretch:
+			tx = origin.x + (size.x - tw) / 2
 		}
 		ty := origin.y + (size.y - lh) / 2
-		ascent := text_ascent(r, vv.font_size, 0)
+		ascent := text_ascent(rr, vv.font_size, 0)
 
 		// Clip the label to the button rect so a label wider than the
 		// button can't spill into neighbouring widgets. Tight buttons
@@ -553,13 +645,12 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		// this — without it, over-long text visually punches through
 		// the next button's background.
 		push_clip(r, {origin.x, origin.y, size.x, size.y})
-		draw_text(r, vv.label, tx, ty + ascent, vv.fg, vv.font_size, 0)
+		draw_text(rr, vv.label, tx, ty + ascent, vv.fg, vv.font_size, 0)
 		pop_clip(r)
 
 	case View_Text_Input:
-		if r.widgets != nil {
-			widget_record_rect(r.widgets, vv.id,
-				Rect{origin.x, origin.y, size.x, size.y})
+		if rr.widgets != nil {
+			widget_record_rect(rr.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
 		}
 
 		// Body: filled rect. Every input renders a 1-px hairline border so
@@ -569,15 +660,15 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		draw_rect(r, {origin.x, origin.y, size.x, size.y}, vv.color_bg, vv.radius)
 		{
 			border_c := vv.color_border_idle
-			if border_c[3] == 0 { border_c = vv.color_border }
-			if vv.focused || vv.invalid { border_c = vv.color_border }
+			if border_c[3] == 0 {border_c = vv.color_border}
+			if vv.focused || vv.invalid {border_c = vv.color_border}
 			b: f32 = 1
 			// top + bottom + left + right as four thin rects — cheaper
 			// than a real stroke and perfectly sharp on any DPI.
-			draw_rect(r, {origin.x,               origin.y,               size.x, b}, border_c, 0)
-			draw_rect(r, {origin.x,               origin.y + size.y - b,  size.x, b}, border_c, 0)
-			draw_rect(r, {origin.x,               origin.y + b,           b,      size.y - 2*b}, border_c, 0)
-			draw_rect(r, {origin.x + size.x - b,  origin.y + b,           b,      size.y - 2*b}, border_c, 0)
+			draw_rect(r, {origin.x, origin.y, size.x, b}, border_c, 0)
+			draw_rect(r, {origin.x, origin.y + size.y - b, size.x, b}, border_c, 0)
+			draw_rect(r, {origin.x, origin.y + b, b, size.y - 2 * b}, border_c, 0)
+			draw_rect(r, {origin.x + size.x - b, origin.y + b, b, size.y - 2 * b}, border_c, 0)
 		}
 
 		// Content region (everything inside the padding).
@@ -585,7 +676,7 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		iy := origin.y + vv.padding.y
 		iw := size.x - 2 * vv.padding.x
 		ih := size.y - 2 * vv.padding.y
-		if iw <= 0 || ih <= 0 { return }
+		if iw <= 0 || ih <= 0 {return}
 
 		// Search-mode clear affordance: reserve a column in the right
 		// padding for the `×` glyph and shrink `iw` so the caret/
@@ -606,15 +697,15 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		// sits in the right-padding column past `iw`.
 		push_clip(r, {ix, iy, iw, ih})
 
-		display      := vv.text
-		display_col  := vv.color_fg
+		display := vv.text
+		display_col := vv.color_fg
 		if len(display) == 0 && !vv.focused && len(vv.placeholder) > 0 {
-			display     = vv.placeholder
+			display = vv.placeholder
 			display_col = vv.color_placeholder
 		}
 
-		_, lh := measure_text(r, display, vv.font_size)
-		ascent := text_ascent(r, vv.font_size, 0)
+		_, lh := measure_text(rr, display, vv.font_size)
+		ascent := text_ascent(rr, vv.font_size, 0)
 
 		if !vv.multiline {
 			// Single-line: vertically center. measure_text returns the
@@ -628,20 +719,18 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 			if vv.focused && vv.selection_anchor != vv.cursor_pos && len(vv.text) > 0 {
 				lo := vv.selection_anchor
 				hi := vv.cursor_pos
-				if lo > hi { lo, hi = hi, lo }
+				if lo > hi {lo, hi = hi, lo}
 				lo = clamp(lo, 0, len(vv.text))
 				hi = clamp(hi, 0, len(vv.text))
 				x_lo: f32 = 0
 				x_hi: f32 = 0
-				if lo > 0 { x_lo, _ = measure_text(r, vv.text[:lo], vv.font_size) }
-				if hi > 0 { x_hi, _ = measure_text(r, vv.text[:hi], vv.font_size) }
-				draw_rect(r,
-					{ix + x_lo, ty, x_hi - x_lo, lh},
-					vv.color_selection, 0)
+				if lo > 0 {x_lo, _ = measure_text(rr, vv.text[:lo], vv.font_size)}
+				if hi > 0 {x_hi, _ = measure_text(rr, vv.text[:hi], vv.font_size)}
+				draw_rect(r, {ix + x_lo, ty, x_hi - x_lo, lh}, vv.color_selection, 0)
 			}
 
 			if len(display) > 0 {
-				draw_text(r, display, ix, ty + ascent, display_col, vv.font_size, 0)
+				draw_text(rr, display, ix, ty + ascent, display_col, vv.font_size, 0)
 			}
 
 			// Caret: measure the prefix up to cursor_pos to locate its x.
@@ -650,12 +739,10 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 			if vv.focused {
 				cw: f32 = 0
 				if vv.cursor_pos > 0 && vv.cursor_pos <= len(vv.text) {
-					cw, _ = measure_text(r, vv.text[:vv.cursor_pos], vv.font_size)
+					cw, _ = measure_text(rr, vv.text[:vv.cursor_pos], vv.font_size)
 				}
 				caret_w: f32 = 1.5
-				draw_rect(r,
-					{ix + cw, ty, caret_w, lh},
-					vv.color_caret, 0)
+				draw_rect(r, {ix + cw, ty, caret_w, lh}, vv.color_caret, 0)
 			}
 
 			pop_clip(r)
@@ -667,12 +754,12 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 			// confident on point.
 			if vv.show_clear {
 				glyph_col := vv.color_placeholder
-				if vv.clear_hovered { glyph_col = vv.color_fg }
-				gw, glh := measure_text(r, "×", vv.font_size)
+				if vv.clear_hovered {glyph_col = vv.color_fg}
+				gw, glh := measure_text(rr, "×", vv.font_size)
 				gx := ix + iw + (clear_w - gw) / 2
 				gy := iy + (ih - glh) / 2
-				ascent := text_ascent(r, vv.font_size, 0)
-				draw_text(r, "×", gx, gy + ascent, glyph_col, vv.font_size, 0)
+				ascent := text_ascent(rr, vv.font_size, 0)
+				draw_text(rr, "×", gx, gy + ascent, glyph_col, vv.font_size, 0)
 			}
 		} else {
 			// Multiline: top-aligned, one glyph run per visual line (the
@@ -688,7 +775,7 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 			if has_sel {
 				sel_lo = vv.selection_anchor
 				sel_hi = vv.cursor_pos
-				if sel_lo > sel_hi { sel_lo, sel_hi = sel_hi, sel_lo }
+				if sel_lo > sel_hi {sel_lo, sel_hi = sel_hi, sel_lo}
 				sel_lo = clamp(sel_lo, 0, len(vv.text))
 				sel_hi = clamp(sel_hi, 0, len(vv.text))
 			}
@@ -699,7 +786,7 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 				// Empty buffer: show placeholder (if any) and draw the
 				// caret at the origin so focus is still visible.
 				if len(display) > 0 && display_col.a != 0 {
-					draw_text(r, display, ix, iy + ascent, display_col, vv.font_size, 0)
+					draw_text(rr, display, ix, iy + ascent, display_col, vv.font_size, 0)
 				}
 				if vv.focused {
 					draw_rect(r, {ix, iy, 1.5, lh}, vv.color_caret, 0)
@@ -722,15 +809,18 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 						hi := min(sel_hi, j)
 						x_lo: f32 = 0
 						x_hi: f32 = 0
-						if lo > i { x_lo, _ = measure_text(r, vv.text[i:lo], vv.font_size) }
-						if hi > i { x_hi, _ = measure_text(r, vv.text[i:hi], vv.font_size) }
+						if lo > i {x_lo, _ = measure_text(rr, vv.text[i:lo], vv.font_size)}
+						if hi > i {x_hi, _ = measure_text(rr, vv.text[i:hi], vv.font_size)}
 						if line_ends_hard && sel_hi > j {
 							x_hi += vv.font_size * 0.4
 						}
 						if x_hi > x_lo {
-							draw_rect(r,
+							draw_rect(
+								r,
 								{ix + x_lo, line_y, x_hi - x_lo, lh},
-								vv.color_selection, 0)
+								vv.color_selection,
+								0,
+							)
 						}
 					}
 
@@ -738,8 +828,15 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 					// space consumed by a wrap break, so `text[vl.start:vl.end]`
 					// is exactly what should render.
 					if j > i {
-						draw_text(r, vv.text[i:j], ix, line_y + ascent,
-							display_col, vv.font_size, 0)
+						draw_text(
+							rr,
+							vv.text[i:j],
+							ix,
+							line_y + ascent,
+							display_col,
+							vv.font_size,
+							0,
+						)
 					}
 
 					// Caret on this visual line.
@@ -759,8 +856,7 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 						if draw_here {
 							cw: f32 = 0
 							if vv.cursor_pos > i {
-								cw, _ = measure_text(r,
-									vv.text[i:vv.cursor_pos], vv.font_size)
+								cw, _ = measure_text(rr, vv.text[i:vv.cursor_pos], vv.font_size)
 							}
 							draw_rect(r, {ix + cw, line_y, 1.5, lh}, vv.color_caret, 0)
 						}
@@ -781,10 +877,10 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 				bar_y := iy + 1
 				bar_h := ih - 2
 				max_off := vv.content_h - ih
-				ratio  := ih / vv.content_h
+				ratio := ih / vv.content_h
 				thumb_h := bar_h * ratio
-				if thumb_h < 16       { thumb_h = 16 }
-				if thumb_h > bar_h    { thumb_h = bar_h }
+				if thumb_h < 16 {thumb_h = 16}
+				if thumb_h > bar_h {thumb_h = bar_h}
 				thumb_t := vv.scroll_y / max_off
 				thumb_y := bar_y + (bar_h - thumb_h) * thumb_t
 
@@ -792,18 +888,15 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 				// native together — active drag strongest, idle hover
 				// lighter, resting unchanged.
 				thumb_col := vv.color_thumb
-				if vv.sb_dragging   { thumb_col = color_tint(thumb_col, 0.25) }
-				else if vv.sb_hover { thumb_col = color_tint(thumb_col, 0.12) }
+				if vv.sb_dragging {thumb_col = color_tint(thumb_col, 0.25)} else if vv.sb_hover {thumb_col = color_tint(thumb_col, 0.12)}
 
-				draw_rect(r, {bar_x, thumb_y, bar_w, thumb_h},
-					thumb_col, bar_w / 2)
+				draw_rect(r, {bar_x, thumb_y, bar_w, thumb_h}, thumb_col, bar_w / 2)
 			}
 		}
 
 	case View_Checkbox:
-		if r.widgets != nil {
-			widget_record_rect(r.widgets, vv.id,
-				Rect{origin.x, origin.y, size.x, size.y})
+		if rr.widgets != nil {
+			widget_record_rect(rr.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
 		}
 
 		// Vertically center the box within the widget row so a taller
@@ -813,7 +906,7 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		radius := vv.box_size * 0.25
 
 		bg := vv.color_box
-		if vv.checked { bg = vv.color_fill }
+		if vv.checked {bg = vv.color_fill}
 		if vv.pressed {
 			bg = color_tint(bg, 0.12)
 		} else if vv.hover {
@@ -821,43 +914,50 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		}
 		draw_rect(r, {box_r.x, box_r.y, box_r.w, box_r.h}, bg, radius)
 		if vv.focused {
-			draw_focus_ring(r,
-				{box_r.x, box_r.y, box_r.w, box_r.h},
-				radius, vv.color_focus, bg)
+			draw_focus_ring(r, {box_r.x, box_r.y, box_r.w, box_r.h}, radius, vv.color_focus, bg)
 		}
 		if !vv.checked {
 			// Unfilled outline: draw a slightly inset bg-colored rect to
 			// give the border a 1-px ring without a dedicated stroke path.
 			b: f32 = 1
-			draw_rect(r, {box_r.x, box_r.y, box_r.w, b},                 vv.color_border, 0)
-			draw_rect(r, {box_r.x, box_r.y + box_r.h - b, box_r.w, b},   vv.color_border, 0)
-			draw_rect(r, {box_r.x, box_r.y + b, b, box_r.h - 2*b},       vv.color_border, 0)
-			draw_rect(r, {box_r.x + box_r.w - b, box_r.y + b, b, box_r.h - 2*b}, vv.color_border, 0)
+			draw_rect(r, {box_r.x, box_r.y, box_r.w, b}, vv.color_border, 0)
+			draw_rect(r, {box_r.x, box_r.y + box_r.h - b, box_r.w, b}, vv.color_border, 0)
+			draw_rect(r, {box_r.x, box_r.y + b, b, box_r.h - 2 * b}, vv.color_border, 0)
+			draw_rect(
+				r,
+				{box_r.x + box_r.w - b, box_r.y + b, b, box_r.h - 2 * b},
+				vv.color_border,
+				0,
+			)
 		} else {
 			// ✓ drawn as a glyph so it picks up the text pipeline's AA
 			// and scales with the font system, no bespoke stroke code.
 			mark := "✓"
-			tw, lh := measure_text(r, mark, vv.font_size)
+			tw, lh := measure_text(rr, mark, vv.font_size)
 			tx := box_r.x + (box_r.w - tw) / 2
 			ty := box_r.y + (box_r.h - lh) / 2
-			ascent := text_ascent(r, vv.font_size, 0)
-			draw_text(r, mark, tx, ty + ascent, vv.color_check, vv.font_size, 0)
+			ascent := text_ascent(rr, vv.font_size, 0)
+			draw_text(rr, mark, tx, ty + ascent, vv.color_check, vv.font_size, 0)
 		}
 
 		if len(vv.label) > 0 {
-			_, lh := measure_text(r, vv.label, vv.font_size)
+			_, lh := measure_text(rr, vv.label, vv.font_size)
 			ty := origin.y + (size.y - lh) / 2
-			ascent := text_ascent(r, vv.font_size, 0)
-			draw_text(r, vv.label,
+			ascent := text_ascent(rr, vv.font_size, 0)
+			draw_text(
+				rr,
+				vv.label,
 				box_r.x + vv.box_size + vv.gap,
 				ty + ascent,
-				vv.color_fg, vv.font_size, 0)
+				vv.color_fg,
+				vv.font_size,
+				0,
+			)
 		}
 
 	case View_Radio:
-		if r.widgets != nil {
-			widget_record_rect(r.widgets, vv.id,
-				Rect{origin.x, origin.y, size.x, size.y})
+		if rr.widgets != nil {
+			widget_record_rect(rr.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
 		}
 
 		box_y := origin.y + (size.y - vv.box_size) / 2
@@ -874,9 +974,7 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		}
 		draw_rect(r, {box_r.x, box_r.y, box_r.w, box_r.h}, bg, radius)
 		if vv.focused {
-			draw_focus_ring(r,
-				{box_r.x, box_r.y, box_r.w, box_r.h},
-				radius, vv.color_focus, bg)
+			draw_focus_ring(r, {box_r.x, box_r.y, box_r.w, box_r.h}, radius, vv.color_focus, bg)
 		}
 		// No explicit outline ring — earlier versions stacked a
 		// border-coloured disc under an inset bg disc, but the two
@@ -890,24 +988,27 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 			dot_size := vv.box_size * 0.5
 			dx := box_r.x + (box_r.w - dot_size) / 2
 			dy := box_r.y + (box_r.h - dot_size) / 2
-			draw_rect(r, {dx, dy, dot_size, dot_size},
-				vv.color_dot, dot_size * 0.5)
+			draw_rect(r, {dx, dy, dot_size, dot_size}, vv.color_dot, dot_size * 0.5)
 		}
 
 		if len(vv.label) > 0 {
-			_, lh := measure_text(r, vv.label, vv.font_size)
+			_, lh := measure_text(rr, vv.label, vv.font_size)
 			ty := origin.y + (size.y - lh) / 2
-			ascent := text_ascent(r, vv.font_size, 0)
-			draw_text(r, vv.label,
+			ascent := text_ascent(rr, vv.font_size, 0)
+			draw_text(
+				rr,
+				vv.label,
 				box_r.x + vv.box_size + vv.gap,
 				ty + ascent,
-				vv.color_fg, vv.font_size, 0)
+				vv.color_fg,
+				vv.font_size,
+				0,
+			)
 		}
 
 	case View_Toggle:
-		if r.widgets != nil {
-			widget_record_rect(r.widgets, vv.id,
-				Rect{origin.x, origin.y, size.x, size.y})
+		if rr.widgets != nil {
+			widget_record_rect(rr.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
 		}
 
 		// Vertically center the track in the widget row — label can
@@ -915,10 +1016,10 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		// aligned with the text baseline area either way.
 		track_y := origin.y + (size.y - vv.track_h) / 2
 		track_x := origin.x
-		radius  := vv.track_h * 0.5
+		radius := vv.track_h * 0.5
 
 		bg := vv.color_off
-		if vv.on { bg = vv.color_on }
+		if vv.on {bg = vv.color_on}
 		if vv.pressed {
 			bg = color_tint(bg, 0.12)
 		} else if vv.hover {
@@ -926,9 +1027,13 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		}
 		draw_rect(r, {track_x, track_y, vv.track_w, vv.track_h}, bg, radius)
 		if vv.focused {
-			draw_focus_ring(r,
+			draw_focus_ring(
+				r,
 				{track_x, track_y, vv.track_w, vv.track_h},
-				radius, vv.color_focus, bg)
+				radius,
+				vv.color_focus,
+				bg,
+			)
 		}
 
 		// Knob — square with full-corner radius, so it renders as a
@@ -936,29 +1041,32 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		// and flush-right when on; `knob_pad` keeps it from kissing
 		// the track edge on either side.
 		knob_d := vv.track_h - 2 * vv.knob_pad
-		if knob_d < 1 { knob_d = 1 }
+		if knob_d < 1 {knob_d = 1}
 		knob_x: f32 = track_x + vv.knob_pad
 		if vv.on {
 			knob_x = track_x + vv.track_w - vv.knob_pad - knob_d
 		}
 		knob_y := track_y + vv.knob_pad
-		draw_rect(r, {knob_x, knob_y, knob_d, knob_d},
-			vv.color_knob, knob_d * 0.5)
+		draw_rect(r, {knob_x, knob_y, knob_d, knob_d}, vv.color_knob, knob_d * 0.5)
 
 		if len(vv.label) > 0 {
-			_, lh := measure_text(r, vv.label, vv.font_size)
+			_, lh := measure_text(rr, vv.label, vv.font_size)
 			ty := origin.y + (size.y - lh) / 2
-			ascent := text_ascent(r, vv.font_size, 0)
-			draw_text(r, vv.label,
+			ascent := text_ascent(rr, vv.font_size, 0)
+			draw_text(
+				rr,
+				vv.label,
 				track_x + vv.track_w + vv.gap,
 				ty + ascent,
-				vv.color_fg, vv.font_size, 0)
+				vv.color_fg,
+				vv.font_size,
+				0,
+			)
 		}
 
 	case View_Slider:
-		if r.widgets != nil {
-			widget_record_rect(r.widgets, vv.id,
-				Rect{origin.x, origin.y, size.x, size.y})
+		if rr.widgets != nil {
+			widget_record_rect(rr.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
 		}
 
 		// Track runs centered vertically, with `thumb_r` left+right of
@@ -967,27 +1075,25 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		track_y := origin.y + (size.y - vv.track_h) / 2
 		track_x := origin.x + inset
 		track_w := size.x - 2 * inset
-		if track_w < 1 { track_w = 1 }
+		if track_w < 1 {track_w = 1}
 
 		// Background bed (full track).
-		draw_rect(r, {track_x, track_y, track_w, vv.track_h},
-			vv.color_track, vv.track_h / 2)
+		draw_rect(r, {track_x, track_y, track_w, vv.track_h}, vv.color_track, vv.track_h / 2)
 
 		// Filled portion up to the current value.
 		span := vv.max_value - vv.min_value
 		t: f32 = 0
-		if span > 0 { t = (vv.value - vv.min_value) / span }
-		if t < 0 { t = 0 }
-		if t > 1 { t = 1 }
-		draw_rect(r, {track_x, track_y, track_w * t, vv.track_h},
-			vv.color_fill, vv.track_h / 2)
+		if span > 0 {t = (vv.value - vv.min_value) / span}
+		if t < 0 {t = 0}
+		if t > 1 {t = 1}
+		draw_rect(r, {track_x, track_y, track_w * t, vv.track_h}, vv.color_fill, vv.track_h / 2)
 
 		// Thumb: filled disc (primary color outer, on_primary inner for
 		// contrast). draw_rect with radius half the shorter edge gives a
 		// perfect circle; the renderer clamps oversized radii.
 		cx := track_x + track_w * t
 		cy := track_y + vv.track_h / 2
-		d  := vv.thumb_r * 2
+		d := vv.thumb_r * 2
 
 		// Focus ring drawn *first* so the thumb paints over it, leaving
 		// a clean accent halo around the disc. Outlining the whole
@@ -995,18 +1101,20 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		if vv.focused {
 			ring_r := vv.thumb_r + 3
 			ring_d := ring_r * 2
-			draw_rect(r, {cx - ring_r, cy - ring_r, ring_d, ring_d},
-				vv.color_focus, ring_r)
+			draw_rect(r, {cx - ring_r, cy - ring_r, ring_d, ring_d}, vv.color_focus, ring_r)
 		}
 
 		// Outer ring (primary fill).
-		draw_rect(r, {cx - vv.thumb_r, cy - vv.thumb_r, d, d},
-			vv.color_fill, vv.thumb_r)
+		draw_rect(r, {cx - vv.thumb_r, cy - vv.thumb_r, d, d}, vv.color_fill, vv.thumb_r)
 		// Inner dot.
 		inner_r := vv.thumb_r - 2
-		if inner_r < 1 { inner_r = 1 }
-		draw_rect(r, {cx - inner_r, cy - inner_r, inner_r * 2, inner_r * 2},
-			vv.color_thumb, inner_r)
+		if inner_r < 1 {inner_r = 1}
+		draw_rect(
+			r,
+			{cx - inner_r, cy - inner_r, inner_r * 2, inner_r * 2},
+			vv.color_thumb,
+			inner_r,
+		)
 
 	case View_Progress:
 		w := size.x if vv.width == 0 else vv.width
@@ -1019,17 +1127,20 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 			// rounded end caps.
 			lo := vv.chip_pos
 			hi := vv.chip_pos + vv.chip
-			if lo < 0 { lo = 0 }
-			if hi > 1 { hi = 1 }
+			if lo < 0 {lo = 0}
+			if hi > 1 {hi = 1}
 			if hi > lo {
-				draw_rect(r,
+				draw_rect(
+					r,
 					{origin.x + w * lo, origin.y, w * (hi - lo), h},
-					vv.color_fill, vv.radius)
+					vv.color_fill,
+					vv.radius,
+				)
 			}
 		} else {
 			t := vv.value
-			if t < 0 { t = 0 }
-			if t > 1 { t = 1 }
+			if t < 0 {t = 0}
+			if t > 1 {t = 1}
 			draw_rect(r, {origin.x, origin.y, w * t, h}, vv.color_fill, vv.radius)
 		}
 
@@ -1039,23 +1150,23 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		// quadratically behind it so the user perceives motion rather
 		// than a static ring.
 		N :: 8
-		dot_r  := vv.size * 0.12
+		dot_r := vv.size * 0.12
 		ring_r := vv.size * 0.5 - dot_r
 		cx := origin.x + vv.size * 0.5
 		cy := origin.y + vv.size * 0.5
-		for i in 0..<N {
+		for i in 0 ..< N {
 			ang := f32(i) / f32(N) * 2.0 * math.PI
 			x := cx + ring_r * math.cos(ang)
 			y := cy + ring_r * math.sin(ang)
 			// Distance (in ring-turns) behind the leading dot. Wrap so
 			// the leader is "newest" (t=0) and the dot just before it
 			// is "oldest" (t≈1). Tint alpha quadratically.
-			t := f32(i)/f32(N) - vv.phase
+			t := f32(i) / f32(N) - vv.phase
 			t = t - math.floor(t)
 			a := (1.0 - t) * (1.0 - t)
 			c := vv.color
 			c[3] *= a
-			draw_rect(r, {x - dot_r, y - dot_r, dot_r*2, dot_r*2}, c, dot_r)
+			draw_rect(r, {x - dot_r, y - dot_r, dot_r * 2, dot_r * 2}, c, dot_r)
 		}
 
 	case View_Scroll:
@@ -1066,8 +1177,8 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		vp_w := vv.size.x if vv.size.x > 0 else size.x
 		vp_h := vv.size.y if vv.size.y > 0 else size.y
 		vp := Rect{origin.x, origin.y, vp_w, vp_h}
-		if r.widgets != nil {
-			widget_record_rect(r.widgets, vv.id, vp)
+		if rr.widgets != nil {
+			widget_record_rect(rr.widgets, vv.id, vp)
 		}
 
 		// Scrollbar gutter reservation. The bar lives in the right 8 px
@@ -1088,10 +1199,10 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		child_h := content_size.y
 
 		max_off := child_h - vp_h
-		if max_off < 0 { max_off = 0 }
+		if max_off < 0 {max_off = 0}
 		off := vv.offset_y
-		if off < 0        { off = 0 }
-		if off > max_off  { off = max_off }
+		if off < 0 {off = 0}
+		if off > max_off {off = max_off}
 		// Snap the scroll offset to physical-pixel boundaries before
 		// it becomes the render origin's negative-y. Without this
 		// `off` carries the fractional component of `child_h` (a sum
@@ -1102,7 +1213,7 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		// boc-next reported on chat rows near the viewport top while
 		// the assistant streams. Rounding to physical px (rather than
 		// logical) keeps the snap correct on HiDPI too.
-		scale := r.scale if r.scale > 0 else 1
+		scale := rr.scale if rr.scale > 0 else 1
 		off = math.floor(off * scale) / scale
 
 		// When the bar will render, shrink the child layout width so
@@ -1116,11 +1227,11 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		// can leave the pre-clamp value well out of range; `content_h`
 		// lets next frame's builder reconstruct scrollbar geometry for
 		// hit-testing clicks without re-measuring the child tree.
-		if r.widgets != nil {
-			st := r.widgets.states[vv.id]
-			st.scroll_y  = off
+		if rr.widgets != nil {
+			st := rr.widgets.states[vv.id]
+			st.scroll_y = off
 			st.content_h = child_h
-			r.widgets.states[vv.id] = st
+			rr.widgets.states[vv.id] = st
 		}
 
 		push_clip(r, vp)
@@ -1137,13 +1248,12 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 			bar_x := origin.x + vp_w - bar_w - 2
 			bar_y := origin.y + 2
 			bar_h := vp_h - 4
-			draw_rect(r, {bar_x, bar_y, bar_w, bar_h},
-				vv.track_color, bar_w / 2)
+			draw_rect(r, {bar_x, bar_y, bar_w, bar_h}, vv.track_color, bar_w / 2)
 
 			ratio := vp_h / child_h
 			thumb_h := bar_h * ratio
-			if thumb_h < 16 { thumb_h = 16 } // minimum tap target
-			if thumb_h > bar_h { thumb_h = bar_h }
+			if thumb_h < 16 {thumb_h = 16} 	// minimum tap target
+			if thumb_h > bar_h {thumb_h = bar_h}
 			thumb_t := off / max_off // 0..1
 			thumb_y := bar_y + (bar_h - thumb_h) * thumb_t
 
@@ -1151,38 +1261,38 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 			// control. Active (dragging) gets the strongest tint,
 			// matching native scrollbar convention.
 			thumb_col := vv.thumb_color
-			if vv.dragging         { thumb_col = color_tint(thumb_col, 0.25) }
-			else if vv.hover_thumb { thumb_col = color_tint(thumb_col, 0.12) }
-			draw_rect(r, {bar_x, thumb_y, bar_w, thumb_h},
-				thumb_col, bar_w / 2)
+			if vv.dragging {thumb_col = color_tint(thumb_col, 0.25)} else if vv.hover_thumb {thumb_col = color_tint(thumb_col, 0.12)}
+			draw_rect(r, {bar_x, thumb_y, bar_w, thumb_h}, thumb_col, bar_w / 2)
 		}
 
 	case View_Select:
-		if r.widgets != nil {
-			widget_record_rect(r.widgets, vv.id,
-				Rect{origin.x, origin.y, size.x, size.y})
+		if rr.widgets != nil {
+			widget_record_rect(rr.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
 		}
 
 		bg := vv.color_bg
-		if vv.hover { bg = color_tint(bg, 0.08) }
+		if vv.hover {bg = color_tint(bg, 0.08)}
 		draw_rect(r, {origin.x, origin.y, size.x, size.y}, bg, vv.radius)
 
 		if vv.focused || vv.open {
-			draw_focus_ring(r,
-				{origin.x, origin.y, size.x, size.y},
-				vv.radius, vv.color_focus, bg)
+			draw_focus_ring(r, {origin.x, origin.y, size.x, size.y}, vv.radius, vv.color_focus, bg)
 		} else {
 			b: f32 = 1
-			draw_rect(r, {origin.x,              origin.y,              size.x, b}, vv.color_border, 0)
-			draw_rect(r, {origin.x,              origin.y + size.y - b, size.x, b}, vv.color_border, 0)
-			draw_rect(r, {origin.x,              origin.y + b,          b,      size.y - 2*b}, vv.color_border, 0)
-			draw_rect(r, {origin.x + size.x - b, origin.y + b,          b,      size.y - 2*b}, vv.color_border, 0)
+			draw_rect(r, {origin.x, origin.y, size.x, b}, vv.color_border, 0)
+			draw_rect(r, {origin.x, origin.y + size.y - b, size.x, b}, vv.color_border, 0)
+			draw_rect(r, {origin.x, origin.y + b, b, size.y - 2 * b}, vv.color_border, 0)
+			draw_rect(
+				r,
+				{origin.x + size.x - b, origin.y + b, b, size.y - 2 * b},
+				vv.color_border,
+				0,
+			)
 		}
 
-		display     := vv.value
+		display := vv.value
 		display_col := vv.color_fg
 		if len(display) == 0 {
-			display     = vv.placeholder
+			display = vv.placeholder
 			display_col = vv.color_placeholder
 		}
 
@@ -1200,15 +1310,15 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		caret_x := origin.x + size.x - vv.padding.x - caret_w
 		caret_y := origin.y + (size.y - caret_h) / 2
 
-		_, lh := measure_text(r, display, vv.font_size)
-		ty := iy + (size.y - 2*vv.padding.y - lh) / 2
-		ascent := text_ascent(r, vv.font_size, 0)
+		_, lh := measure_text(rr, display, vv.font_size)
+		ty := iy + (size.y - 2 * vv.padding.y - lh) / 2
+		ascent := text_ascent(rr, vv.font_size, 0)
 
 		// Label (clipped so overflow doesn't escape into the caret area).
 		label_w := iw - caret_w - 6
-		if label_w < 0 { label_w = 0 }
-		push_clip(r, {ix, iy, label_w, size.y - 2*vv.padding.y})
-		draw_text(r, display, ix, ty + ascent, display_col, vv.font_size, 0)
+		if label_w < 0 {label_w = 0}
+		push_clip(r, {ix, iy, label_w, size.y - 2 * vv.padding.y})
+		draw_text(rr, display, ix, ty + ascent, display_col, vv.font_size, 0)
 		pop_clip(r)
 
 		// Caret triangle. Each row is 1 px tall and shrinks by 2 px
@@ -1216,10 +1326,8 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		// that reads the same on any DPI.
 		for i: f32 = 0; i < caret_h; i += 1 {
 			row_w := caret_w - 2 * i
-			if row_w < 1 { break }
-			draw_rect(r,
-				{caret_x + i, caret_y + i, row_w, 1},
-				vv.color_caret, 0)
+			if row_w < 1 {break}
+			draw_rect(r, {caret_x + i, caret_y + i, row_w, 1}, vv.color_caret, 0)
 		}
 
 	case View_Overlay:
@@ -1233,38 +1341,40 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		switch vv.placement {
 		case .Below:
 			y = vv.anchor.y + vv.anchor.h + vv.offset.y
-			if y + cs.y > f32(r.fb_size.y) && vv.anchor.y - cs.y >= 0 {
+			if y + cs.y > f32(rr.fb_size.y) && vv.anchor.y - cs.y >= 0 {
 				y = vv.anchor.y - cs.y - vv.offset.y
 			}
 		case .Above:
 			y = vv.anchor.y - cs.y - vv.offset.y
-			if y < 0 && vv.anchor.y + vv.anchor.h + cs.y <= f32(r.fb_size.y) {
+			if y < 0 && vv.anchor.y + vv.anchor.h + cs.y <= f32(rr.fb_size.y) {
 				y = vv.anchor.y + vv.anchor.h + vv.offset.y
 			}
 		}
 		// Clamp horizontally so the overlay doesn't spill off screen —
 		// common when a dropdown sits near the right edge of the window.
-		if x + cs.x > f32(r.fb_size.x) { x = f32(r.fb_size.x) - cs.x }
-		if x < 0                       { x = 0 }
+		if x + cs.x > f32(rr.fb_size.x) {x = f32(rr.fb_size.x) - cs.x}
+		if x < 0 {x = 0}
 
 		op := vv.opacity
-		if op == 0 { op = 1 } // legacy call sites that don't set opacity
-		append(&r.overlays, Overlay_Entry{
-			origin        = {x, y},
-			size          = cs,
-			child         = vv.child^,
-			shadow_radius = 8,
-			opacity       = op,
-		})
+		if op == 0 {op = 1} 	// legacy call sites that don't set opacity
+		append(
+			&rr.overlays,
+			Overlay_Entry {
+				origin = {x, y},
+				size = cs,
+				child = vv.child^,
+				shadow_radius = 8,
+				opacity = op,
+			},
+		)
 
 	case View_Tooltip:
 		// Render the child first so the tooltip state can latch against
 		// its actual rect. Stamp the widget record with (origin, size) —
 		// the builder hit-tests this for the next frame's hover.
 		render_view(r, vv.child^, origin, size)
-		if r.widgets != nil {
-			widget_record_rect(r.widgets, vv.id,
-				Rect{origin.x, origin.y, size.x, size.y})
+		if rr.widgets != nil {
+			widget_record_rect(rr.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
 		}
 
 		// Bubble contents only get queued when the builder decided the
@@ -1272,7 +1382,7 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		// it in a padded rounded-rect, anchor under the child with a
 		// small gap. render_overlays will auto-flip `.Below` to `.Above`
 		// if the bubble would overflow the framebuffer.
-		if !vv.show || len(vv.text) == 0 { return }
+		if !vv.show || len(vv.text) == 0 {return}
 
 		// Split on '\n' so multi-line tooltip text actually wraps at the
 		// newline instead of rendering the glyph (fontstash draws a tofu
@@ -1281,7 +1391,7 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		lines := make([dynamic]string, 0, 4, context.temp_allocator)
 		{
 			start := 0
-			for i in 0..<len(vv.text) {
+			for i in 0 ..< len(vv.text) {
 				if vv.text[i] == '\n' {
 					append(&lines, vv.text[start:i])
 					start = i + 1
@@ -1290,10 +1400,10 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 			append(&lines, vv.text[start:])
 		}
 		max_w: f32 = 0
-		_, lh := measure_text(r, "", vv.font_size)
+		_, lh := measure_text(rr, "", vv.font_size)
 		for line in lines {
-			lw, _ := measure_text(r, line, vv.font_size)
-			if lw > max_w { max_w = lw }
+			lw, _ := measure_text(rr, line, vv.font_size)
+			if lw > max_w {max_w = lw}
 		}
 		bubble_w := max_w + 2 * vv.padding.x
 		bubble_h := lh * f32(len(lines)) + 2 * vv.padding.y
@@ -1304,17 +1414,21 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		// the framebuffer by render_overlays' own clamp logic.
 		bx := anchor.x + (anchor.w - bubble_w) / 2
 		by := anchor.y + anchor.h + 4
-		if by + bubble_h > f32(r.fb_size.y) && anchor.y - bubble_h - 4 >= 0 {
+		if by + bubble_h > f32(rr.fb_size.y) && anchor.y - bubble_h - 4 >= 0 {
 			by = anchor.y - bubble_h - 4
 		}
-		if bx + bubble_w > f32(r.fb_size.x) { bx = f32(r.fb_size.x) - bubble_w }
-		if bx < 0                           { bx = 0 }
+		if bx + bubble_w > f32(rr.fb_size.x) {bx = f32(rr.fb_size.x) - bubble_w}
+		if bx < 0 {bx = 0}
 
 		children := make([]View, len(lines), context.temp_allocator)
 		for line, i in lines {
-			children[i] = View_Text{str = line, color = vv.color_fg, size = vv.font_size}
+			children[i] = View_Text {
+				str   = line,
+				color = vv.color_fg,
+				size  = vv.font_size,
+			}
 		}
-		bubble := View_Stack{
+		bubble := View_Stack {
 			direction   = .Column,
 			width       = bubble_w,
 			height      = bubble_h,
@@ -1324,26 +1438,28 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 			cross_align = .Center,
 			children    = children,
 		}
-		append(&r.overlays, Overlay_Entry{
-			origin        = {bx, by},
-			size          = {bubble_w, bubble_h},
-			child         = bubble,
-			shadow_radius = vv.radius,
-			opacity       = 1,
-		})
+		append(
+			&rr.overlays,
+			Overlay_Entry {
+				origin = {bx, by},
+				size = {bubble_w, bubble_h},
+				child = bubble,
+				shadow_radius = vv.radius,
+				opacity = 1,
+			},
+		)
 
 	case View_Zone:
 		// Passthrough render + rect-record. The child paints itself;
 		// the zone just stamps the bounding rect so next frame's
 		// builder can hit-test clicks against it.
 		render_view(r, vv.child^, origin, size)
-		if r.widgets != nil {
-			widget_record_rect(r.widgets, vv.id,
-				Rect{origin.x, origin.y, size.x, size.y})
+		if rr.widgets != nil {
+			widget_record_rect(rr.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
 		}
 
 	case View_Dialog:
-		if !vv.open { return }
+		if !vv.open {return}
 
 		// Any popover overlays queued before the dialog (select drop-
 		// downs, pickers, menus…) belong to widgets that built earlier
@@ -1355,34 +1471,32 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		// dialog-open frame. Overlays queued LATER (e.g. a picker
 		// inside the dialog card) are not affected because they
 		// append after this point during render.
-		clear(&r.overlays)
+		clear(&rr.overlays)
 
 		// Scrim spans the framebuffer. Enqueued first so the card,
 		// queued after, draws on top of it.
-		fb_w := f32(r.fb_size.x)
-		fb_h := f32(r.fb_size.y)
-		scrim_child := View_Rect{
+		fb_w := f32(rr.fb_size.x)
+		fb_h := f32(rr.fb_size.y)
+		scrim_child := View_Rect {
 			size   = {fb_w, fb_h},
 			color  = vv.color_scrim,
 			radius = 0,
 		}
-		append(&r.overlays, Overlay_Entry{
-			origin  = {0, 0},
-			size    = {fb_w, fb_h},
-			child   = scrim_child,
-			opacity = 1,
-		})
+		append(
+			&rr.overlays,
+			Overlay_Entry{origin = {0, 0}, size = {fb_w, fb_h}, child = scrim_child, opacity = 1},
+		)
 
 		// Card size: intrinsic child + padding, capped by max_width
 		// and the framebuffer. `width` forces a fixed width when
 		// non-zero.
 		cs := view_size(r, vv.child^)
 		card_w := cs.x + 2 * vv.padding
-		if vv.width > 0 { card_w = vv.width }
-		if vv.max_width > 0 && card_w > vv.max_width { card_w = vv.max_width }
-		if card_w > fb_w - 16 { card_w = fb_w - 16 }
+		if vv.width > 0 {card_w = vv.width}
+		if vv.max_width > 0 && card_w > vv.max_width {card_w = vv.max_width}
+		if card_w > fb_w - 16 {card_w = fb_w - 16}
 		card_h := cs.y + 2 * vv.padding
-		if card_h > fb_h - 16 { card_h = fb_h - 16 }
+		if card_h > fb_h - 16 {card_h = fb_h - 16}
 
 		// Center the card in the framebuffer. The content child gets
 		// the inner rect (after padding) as its assigned size — which
@@ -1393,10 +1507,9 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		// Stamp the card rect for next-frame focus trap + backdrop
 		// click detection. Widget_Store.modal_rect was cleared at the
 		// top of the frame; setting it here re-arms those systems.
-		if r.widgets != nil {
-			r.widgets.modal_rect = Rect{card_x, card_y, card_w, card_h}
-			widget_record_rect(r.widgets, vv.id,
-				Rect{card_x, card_y, card_w, card_h})
+		if rr.widgets != nil {
+			rr.widgets.modal_rect = Rect{card_x, card_y, card_w, card_h}
+			widget_record_rect(rr.widgets, vv.id, Rect{card_x, card_y, card_w, card_h})
 		}
 
 		// Compose the card: a Stack with bg + radius wrapping the
@@ -1406,7 +1519,7 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		// the card width the same way it would inside any container.
 		content_children := make([]View, 1, context.temp_allocator)
 		content_children[0] = vv.child^
-		card := View_Stack{
+		card := View_Stack {
 			direction   = .Column,
 			padding     = vv.padding,
 			width       = card_w,
@@ -1416,13 +1529,16 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 			cross_align = .Stretch,
 			children    = content_children,
 		}
-		append(&r.overlays, Overlay_Entry{
-			origin        = {card_x, card_y},
-			size          = {card_w, card_h},
-			child         = card,
-			shadow_radius = 8,
-			opacity       = 1,
-		})
+		append(
+			&rr.overlays,
+			Overlay_Entry {
+				origin = {card_x, card_y},
+				size = {card_w, card_h},
+				child = card,
+				shadow_radius = 8,
+				opacity = 1,
+			},
+		)
 
 	case View_Image:
 		// Zero-axis sentinel mirrors View_Rect: fills the assigned size
@@ -1431,7 +1547,7 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		h := vv.size.y == 0 ? size.y : vv.size.y
 		box := Rect{origin.x, origin.y, w, h}
 
-		entry := image_cache_get(r, vv.path)
+		entry := image_cache_get(rr, vv.path)
 		if entry == nil {
 			// Decode failure — draw a magenta placeholder so the bad
 			// path is visually obvious without crashing.
@@ -1443,15 +1559,14 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		// (or any future fit that extends past the slot) can't bleed
 		// into neighboring widgets. Matches CSS `object-fit` behavior.
 		push_clip(r, box)
-		batch_push_image(r, entry.dset, pos, uv, vv.tint)
+		batch_push_image(rr, entry.dset, pos, uv, vv.tint)
 		pop_clip(r)
 
 	case View_Split:
 		// Record the container rect so next frame's builder can hit-
 		// test the divider and clamp drags against the main-axis size.
-		if r.widgets != nil {
-			widget_record_rect(r.widgets, vv.id,
-				Rect{origin.x, origin.y, size.x, size.y})
+		if rr.widgets != nil {
+			widget_record_rect(rr.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
 		}
 
 		// Clamp first_size to the visible range so the second pane is
@@ -1468,66 +1583,62 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		// pattern as the table column resize handle in Phase 13). The
 		// full `dt`-wide strip is still the *hit* target; only the
 		// visible stripe is the pill.
-		div_visual: f32 = 2                  // visible stripe thickness
-		end_inset:  f32 = 8                  // axial inset per end
+		div_visual: f32 = 2 // visible stripe thickness
+		end_inset: f32 = 8 // axial inset per end
 
 		div_col := vv.color_divider
-		if vv.pressed    { div_col = vv.color_divider_pressed }
-		else if vv.hover { div_col = vv.color_divider_hover   }
+		if vv.pressed {div_col = vv.color_divider_pressed} else if vv.hover {div_col = vv.color_divider_hover}
 
 		switch vv.direction {
 		case .Row:
 			main := size.x
-			if first > main - dt { first = main - dt }
-			if first < 0         { first = 0 }
+			if first > main - dt {first = main - dt}
+			if first < 0 {first = 0}
 			second_main := main - first - dt
-			if second_main < 0 { second_main = 0 }
+			if second_main < 0 {second_main = 0}
 
-			render_view(r, vv.first^,  origin,                           {first,       size.y})
+			render_view(r, vv.first^, origin, {first, size.y})
 			render_view(r, vv.second^, {origin.x + first + dt, origin.y}, {second_main, size.y})
 
 			// Clamp the axial inset so panes under ~16 px tall still
 			// show a visible handle.
 			inset := end_inset
-			if size.y < inset * 2 + 8 { inset = max(0, (size.y - 8) * 0.5) }
+			if size.y < inset * 2 + 8 {inset = max(0, (size.y - 8) * 0.5)}
 			px := origin.x + first + (dt - div_visual) * 0.5
 			py := origin.y + inset
-			draw_rect(r, {px, py, div_visual, size.y - inset*2},
-				div_col, div_visual * 0.5)
+			draw_rect(r, {px, py, div_visual, size.y - inset * 2}, div_col, div_visual * 0.5)
 
 		case .Column:
 			main := size.y
-			if first > main - dt { first = main - dt }
-			if first < 0         { first = 0 }
+			if first > main - dt {first = main - dt}
+			if first < 0 {first = 0}
 			second_main := main - first - dt
-			if second_main < 0 { second_main = 0 }
+			if second_main < 0 {second_main = 0}
 
-			render_view(r, vv.first^,  origin,                           {size.x, first})
+			render_view(r, vv.first^, origin, {size.x, first})
 			render_view(r, vv.second^, {origin.x, origin.y + first + dt}, {size.x, second_main})
 
 			inset := end_inset
-			if size.x < inset * 2 + 8 { inset = max(0, (size.x - 8) * 0.5) }
+			if size.x < inset * 2 + 8 {inset = max(0, (size.x - 8) * 0.5)}
 			px := origin.x + inset
 			py := origin.y + first + (dt - div_visual) * 0.5
-			draw_rect(r, {px, py, size.x - inset*2, div_visual},
-				div_col, div_visual * 0.5)
+			draw_rect(r, {px, py, size.x - inset * 2, div_visual}, div_col, div_visual * 0.5)
 		}
 
 	case View_Link:
-		if r.widgets != nil {
-			widget_record_rect(r.widgets, vv.id,
-				Rect{origin.x, origin.y, size.x, size.y})
+		if rr.widgets != nil {
+			widget_record_rect(rr.widgets, vv.id, Rect{origin.x, origin.y, size.x, size.y})
 		}
 
 		col := vv.color
-		if vv.hover || vv.focused { col = vv.color_hover }
+		if vv.hover || vv.focused {col = vv.color_hover}
 
-		ascent := text_ascent(r, vv.font_size, 0)
-		tw, lh := measure_text(r, vv.label, vv.font_size)
+		ascent := text_ascent(rr, vv.font_size, 0)
+		tw, lh := measure_text(rr, vv.label, vv.font_size)
 		tx := origin.x
 		ty := origin.y
 
-		draw_text(r, vv.label, tx, ty + ascent, col, vv.font_size, 0)
+		draw_text(rr, vv.label, tx, ty + ascent, col, vv.font_size, 0)
 
 		if vv.focused {
 			// Two-px outline so the link's focus ring matches the
@@ -1536,30 +1647,30 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 			// Hollow (four rects) rather than fill-inset because links
 			// paint over whatever panel bg the caller supplies, which
 			// draw_focus_ring's inner redraw would cover up.
-			pad:  f32 = 2
-			b:    f32 = 2
+			pad: f32 = 2
+			b: f32 = 2
 			rx := tx - pad
 			ry := ty - pad
-			rw := tw + 2*pad
-			rh := lh + 2*pad
+			rw := tw + 2 * pad
+			rh := lh + 2 * pad
 			fc := vv.color_focus
-			draw_rect(r, {rx,          ry,          rw, b},          fc, 0)
-			draw_rect(r, {rx,          ry + rh - b, rw, b},          fc, 0)
-			draw_rect(r, {rx,          ry + b,      b,  rh - 2*b},   fc, 0)
-			draw_rect(r, {rx + rw - b, ry + b,      b,  rh - 2*b},   fc, 0)
+			draw_rect(r, {rx, ry, rw, b}, fc, 0)
+			draw_rect(r, {rx, ry + rh - b, rw, b}, fc, 0)
+			draw_rect(r, {rx, ry + b, b, rh - 2 * b}, fc, 0)
+			draw_rect(r, {rx + rw - b, ry + b, b, rh - 2 * b}, fc, 0)
 		}
 
 		if vv.underline {
 			uy := ty + ascent + 2
-			if uy + 1 > ty + lh { uy = ty + lh - 1 }
+			if uy + 1 > ty + lh {uy = ty + lh - 1}
 			draw_rect(r, {tx, uy, tw, 1}, col, 0)
 		}
 
 	case View_Toast:
-		if !vv.visible || vv.child == nil { return }
+		if !vv.visible || vv.child == nil {return}
 
-		fb_w := f32(r.fb_size.x)
-		fb_h := f32(r.fb_size.y)
+		fb_w := f32(rr.fb_size.x)
+		fb_h := f32(rr.fb_size.y)
 
 		cs := view_size(r, vv.child^)
 		// Clamp to the framebuffer minus twice the margin so a too-wide
@@ -1567,26 +1678,35 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		cw := cs.x
 		ch := cs.y
 		max_w := fb_w - 2 * vv.margin
-		if max_w < 0 { max_w = 0 }
-		if cw > max_w { cw = max_w }
+		if max_w < 0 {max_w = 0}
+		if cw > max_w {cw = max_w}
 
 		x, y: f32
 		switch vv.anchor {
-		case .Top_Left:       x = vv.margin;                y = vv.margin
-		case .Top_Center:     x = (fb_w - cw) / 2;          y = vv.margin
-		case .Top_Right:      x = fb_w - cw - vv.margin;    y = vv.margin
-		case .Bottom_Left:    x = vv.margin;                y = fb_h - ch - vv.margin
-		case .Bottom_Center:  x = (fb_w - cw) / 2;          y = fb_h - ch - vv.margin
-		case .Bottom_Right:   x = fb_w - cw - vv.margin;    y = fb_h - ch - vv.margin
+		case .Top_Left:
+			x = vv.margin; y = vv.margin
+		case .Top_Center:
+			x = (fb_w - cw) / 2; y = vv.margin
+		case .Top_Right:
+			x = fb_w - cw - vv.margin; y = vv.margin
+		case .Bottom_Left:
+			x = vv.margin; y = fb_h - ch - vv.margin
+		case .Bottom_Center:
+			x = (fb_w - cw) / 2; y = fb_h - ch - vv.margin
+		case .Bottom_Right:
+			x = fb_w - cw - vv.margin; y = fb_h - ch - vv.margin
 		}
 
-		append(&r.overlays, Overlay_Entry{
-			origin        = {x, y},
-			size          = {cw, ch},
-			child         = vv.child^,
-			shadow_radius = 8,
-			opacity       = 1,
-		})
+		append(
+			&rr.overlays,
+			Overlay_Entry {
+				origin = {x, y},
+				size = {cw, ch},
+				child = vv.child^,
+				shadow_radius = 8,
+				opacity = 1,
+			},
+		)
 
 	case View_Deferred:
 		// The parent stack has already sized us via flex / stretch /
@@ -1595,12 +1715,12 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		// render it in our slot. The subtree itself is arbitrary and
 		// may include further deferred nodes (nesting works because we
 		// just recurse through render_view).
-		if vv.trampoline == nil { return }
+		if vv.trampoline == nil {return}
 		child := vv.trampoline(vv.ctx, vv.data, vv.build_raw, size)
 		render_view(r, child, origin, size)
 
 	case View_Canvas:
-		if vv.draw == nil { return }
+		if vv.draw == nil {return}
 		// Fill sentinels: zero on either axis adopts the parent's
 		// assigned extent. Matches View_Rect / View_Image / View_Stack.
 		w := vv.size.x == 0 ? size.x : vv.size.x
@@ -1608,13 +1728,13 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 		bounds := Rect{origin.x, origin.y, w, h}
 		// Record this frame's rect so next frame's view can hit-test
 		// against it via widget_last_rect(ctx, id).
-		if r.widgets != nil && vv.id != 0 {
-			widget_record_rect(r.widgets, vv.id, bounds)
+		if rr.widgets != nil && vv.id != 0 {
+			widget_record_rect(rr.widgets, vv.id, bounds)
 		}
 		// Scissor the callback's draws to the canvas rect. Without this
 		// a runaway `draw_rect` could paint over neighbour widgets.
 		push_clip(r, bounds)
-		vv.draw(vv.user, Canvas_Painter{r = r, bounds = bounds})
+		vv.draw(vv.user, Canvas_Painter{r = rr, bounds = bounds})
 		pop_clip(r)
 	}
 }
@@ -1626,10 +1746,11 @@ render_view :: proc(r: ^Renderer, v: View, origin: [2]f32, size: [2]f32) {
 // Processing uses an index cursor rather than a range-for so overlays
 // that enqueue further overlays (nested sub-menus, tooltips inside a
 // popover) are picked up in the same frame without extra plumbing.
-render_overlays :: proc(r: ^Renderer) {
+render_context_render_overlays :: proc(r: ^Render_Context) {
+	rr := render_context_renderer(r)
 	i := 0
-	for i < len(r.overlays) {
-		e := r.overlays[i]
+	for i < len(rr.overlays) {
+		e := rr.overlays[i]
 
 		// Opacity fade: popover builders animate `anim_t` toward 1 on
 		// open and 0 on close; that value is piped here via
@@ -1647,8 +1768,8 @@ render_overlays :: proc(r: ^Renderer) {
 			i += 1
 			continue
 		}
-		saved_alpha := r.alpha_multiplier
-		r.alpha_multiplier = saved_alpha * opacity
+		saved_alpha := rr.alpha_multiplier
+		rr.alpha_multiplier = saved_alpha * opacity
 
 		// Soft drop shadow beneath the popover card. shadow_radius == 0
 		// opts out (used by dialog scrims and other full-screen entries
@@ -1657,12 +1778,13 @@ render_overlays :: proc(r: ^Renderer) {
 		// depth feel can stamp their own via `draw_shadow` before
 		// returning their view.
 		if e.shadow_radius > 0 {
-			draw_shadow(r,
+			draw_shadow(
+				r,
 				Rect{e.origin.x, e.origin.y, e.size.x, e.size.y},
 				e.shadow_radius,
-				16,                          // blur, px
-				Color{0, 0, 0, 0.28},        // shadow tint
-				{0, 4},                      // offset: light from above
+				16, // blur, px
+				Color{0, 0, 0, 0.28}, // shadow tint
+				{0, 4}, // offset: light from above
 			)
 		}
 		// Bracket the overlay subtree render so `widget_record_rect` stamps
@@ -1671,11 +1793,11 @@ render_overlays :: proc(r: ^Renderer) {
 		// z-correctly — without it, widgets in the main tree whose rect
 		// happens to overlap an open modal card would still receive clicks
 		// through the scrim.
-		if r.widgets != nil { r.widgets.inside_overlay_depth += 1 }
+		if rr.widgets != nil {rr.widgets.inside_overlay_depth += 1}
 		render_view(r, e.child, e.origin, e.size)
-		if r.widgets != nil { r.widgets.inside_overlay_depth -= 1 }
+		if rr.widgets != nil {rr.widgets.inside_overlay_depth -= 1}
 
-		r.alpha_multiplier = saved_alpha
+		rr.alpha_multiplier = saved_alpha
 		i += 1
 	}
 }
@@ -1687,14 +1809,12 @@ render_overlays :: proc(r: ^Renderer) {
 // sharp-cornered strips. Callers pass the fill color they just drew
 // under the widget (the bg) so the inset layer matches.
 @(private)
-draw_focus_ring :: proc(r: ^Renderer, rr: Rect, radius: f32, ring: Color, fill: Color) {
+draw_focus_ring :: proc(r: ^Render_Context, rr: Rect, radius: f32, ring: Color, fill: Color) {
 	w: f32 = 2
 	draw_rect(r, {rr.x, rr.y, rr.w, rr.h}, ring, radius)
 	inner_r := radius - w
-	if inner_r < 0 { inner_r = 0 }
-	draw_rect(r,
-		{rr.x + w, rr.y + w, rr.w - 2*w, rr.h - 2*w},
-		fill, inner_r)
+	if inner_r < 0 {inner_r = 0}
+	draw_rect(r, {rr.x + w, rr.y + w, rr.w - 2 * w, rr.h - 2 * w}, fill, inner_r)
 }
 
 // stack_render is the one place that implements flex distribution and
@@ -1706,14 +1826,14 @@ draw_focus_ring :: proc(r: ^Renderer, rr: Rect, radius: f32, ring: Color, fill: 
 // set, and by stack_render's column path when the parent has a known
 // inner cross extent.
 @(private)
-wrap_row_measure_height :: proc(r: ^Renderer, w: View_Wrap_Row, width: f32) -> f32 {
+wrap_row_measure_height :: proc(r: ^Render_Context, w: View_Wrap_Row, width: f32) -> f32 {
 	inner_w := width - 2 * w.padding
-	if inner_w < 0 { inner_w = 0 }
+	if inner_w < 0 {inner_w = 0}
 
-	cursor_x:    f32 = 0
-	line_h:      f32 = 0
-	total_h:     f32 = 0
-	line_count:  int = 0
+	cursor_x: f32 = 0
+	line_h: f32 = 0
+	total_h: f32 = 0
+	line_count: int = 0
 	first_in_ln: bool = true
 
 	for child in w.children {
@@ -1723,7 +1843,7 @@ wrap_row_measure_height :: proc(r: ^Renderer, w: View_Wrap_Row, width: f32) -> f
 		// it overflows, splitting it onto an empty next line wouldn't
 		// help. Subsequent children need spacing + width to fit.
 		need := cs.x
-		if !first_in_ln { need += w.spacing }
+		if !first_in_ln {need += w.spacing}
 		if !first_in_ln && cursor_x + need > inner_w {
 			// Wrap: commit the current line, start a new one.
 			total_h += line_h
@@ -1734,52 +1854,52 @@ wrap_row_measure_height :: proc(r: ^Renderer, w: View_Wrap_Row, width: f32) -> f
 			need = cs.x
 		}
 		cursor_x += need
-		if cs.y > line_h { line_h = cs.y }
+		if cs.y > line_h {line_h = cs.y}
 		first_in_ln = false
 	}
 	if !first_in_ln {
 		total_h += line_h
 		line_count += 1
 	}
-	if line_count > 1 { total_h += w.line_spacing * f32(line_count - 1) }
+	if line_count > 1 {total_h += w.line_spacing * f32(line_count - 1)}
 	return total_h + 2 * w.padding
 }
 
 @(private)
-wrap_row_render :: proc(r: ^Renderer, w: View_Wrap_Row, origin: [2]f32, size: [2]f32) {
+wrap_row_render :: proc(r: ^Render_Context, w: View_Wrap_Row, origin: [2]f32, size: [2]f32) {
 	if w.bg[3] > 0 {
 		draw_rect(r, {origin.x, origin.y, size.x, size.y}, w.bg, w.radius)
 	}
-	if len(w.children) == 0 { return }
+	if len(w.children) == 0 {return}
 
 	inner_w := size.x - 2 * w.padding
-	if inner_w < 0 { inner_w = 0 }
+	if inner_w < 0 {inner_w = 0}
 
 	// Two-pass: first pass groups children into lines and records the
 	// tallest child per line. Second pass renders each line at its
 	// computed y. The frame arena absorbs the tiny per-line slices so
 	// neither pass leaks.
 	n := len(w.children)
-	sizes      := make([][2]f32,        n, context.temp_allocator)
+	sizes := make([][2]f32, n, context.temp_allocator)
 	line_start := make([dynamic]int, 0, n, context.temp_allocator)
 	line_count := make([dynamic]int, 0, n, context.temp_allocator)
-	line_h     := make([dynamic]f32, 0, n, context.temp_allocator)
+	line_h := make([dynamic]f32, 0, n, context.temp_allocator)
 
-	cursor_x:    f32 = 0
-	cur_line_h:  f32 = 0
-	cur_count:   int = 0
-	cur_first:   int = 0
+	cursor_x: f32 = 0
+	cur_line_h: f32 = 0
+	cur_count: int = 0
+	cur_first: int = 0
 	first_in_ln: bool = true
 
 	for child, i in w.children {
 		cs := view_size(r, child)
 		sizes[i] = cs
 		need := cs.x
-		if !first_in_ln { need += w.spacing }
+		if !first_in_ln {need += w.spacing}
 		if !first_in_ln && cursor_x + need > inner_w {
 			append(&line_start, cur_first)
 			append(&line_count, cur_count)
-			append(&line_h,     cur_line_h)
+			append(&line_h, cur_line_h)
 			cur_first = i
 			cur_count = 0
 			cur_line_h = 0
@@ -1788,34 +1908,34 @@ wrap_row_render :: proc(r: ^Renderer, w: View_Wrap_Row, origin: [2]f32, size: [2
 			need = cs.x
 		}
 		cursor_x += need
-		if cs.y > cur_line_h { cur_line_h = cs.y }
+		if cs.y > cur_line_h {cur_line_h = cs.y}
 		cur_count += 1
 		first_in_ln = false
 	}
 	if cur_count > 0 {
 		append(&line_start, cur_first)
 		append(&line_count, cur_count)
-		append(&line_h,     cur_line_h)
+		append(&line_h, cur_line_h)
 	}
 
 	cursor_y := origin.y + w.padding
-	for li in 0..<len(line_start) {
+	for li in 0 ..< len(line_start) {
 		x := origin.x + w.padding
 		first := line_start[li]
 		count := line_count[li]
-		for k in 0..<count {
+		for k in 0 ..< count {
 			i := first + k
-			if k > 0 { x += w.spacing }
+			if k > 0 {x += w.spacing}
 			render_view(r, w.children[i], {x, cursor_y}, sizes[i])
 			x += sizes[i].x
 		}
 		cursor_y += line_h[li]
-		if li < len(line_start) - 1 { cursor_y += w.line_spacing }
+		if li < len(line_start) - 1 {cursor_y += w.line_spacing}
 	}
 }
 
 @(private)
-stack_render :: proc(r: ^Renderer, s: View_Stack, origin: [2]f32, size: [2]f32) {
+stack_render :: proc(r: ^Render_Context, s: View_Stack, origin: [2]f32, size: [2]f32) {
 	// Background (if any) renders at the stack's full assigned size, so it
 	// covers the padded gutter as well as the content area.
 	if s.bg[3] > 0 {
@@ -1823,19 +1943,19 @@ stack_render :: proc(r: ^Renderer, s: View_Stack, origin: [2]f32, size: [2]f32) 
 	}
 
 	n := len(s.children)
-	if n == 0 { return }
+	if n == 0 {return}
 
 	inner := [2]f32{size.x - 2 * s.padding, size.y - 2 * s.padding}
-	inner_main  := s.direction == .Column ? inner.y : inner.x
+	inner_main := s.direction == .Column ? inner.y : inner.x
 	inner_cross := s.direction == .Column ? inner.x : inner.y
 
 	// Per-child assigned sizes. Start with intrinsics, then overwrite the
 	// main axis for flex children after we know the remainder.
-	sizes   := make([][2]f32, n, context.temp_allocator)
-	weights := make([]f32,    n, context.temp_allocator)
+	sizes := make([][2]f32, n, context.temp_allocator)
+	weights := make([]f32, n, context.temp_allocator)
 
 	non_flex_main: f32 = 0
-	total_weight:  f32 = 0
+	total_weight: f32 = 0
 
 	// In a stretching column, child heights can depend on the assigned
 	// cross extent (wrap_row, sub-columns containing wrap_row). Use
@@ -1853,17 +1973,17 @@ stack_render :: proc(r: ^Renderer, s: View_Stack, origin: [2]f32, size: [2]f32) 
 			sizes[i] = cs
 			if stretching_col {
 				h := view_height_for_width(r, child, inner_cross)
-				if h > cs.y { sizes[i].y = h }
+				if h > cs.y {sizes[i].y = h}
 			}
 			non_flex_main += s.direction == .Column ? sizes[i].y : sizes[i].x
 		}
 	}
 
 	total_spacing: f32 = 0
-	if n > 1 { total_spacing = s.spacing * f32(n - 1) }
+	if n > 1 {total_spacing = s.spacing * f32(n - 1)}
 
 	remaining := inner_main - non_flex_main - total_spacing
-	if remaining < 0 { remaining = 0 }
+	if remaining < 0 {remaining = 0}
 
 	// Distribute remaining main-axis space among flex children. Floor each
 	// share at the child's `min_main` so a tight parent doesn't squeeze a
@@ -1877,20 +1997,20 @@ stack_render :: proc(r: ^Renderer, s: View_Stack, origin: [2]f32, size: [2]f32) 
 		for {
 			free_weight: f32 = 0
 			free_remaining := remaining
-			for i in 0..<n {
+			for i in 0 ..< n {
 				if pinned[i] {
-					if s.direction == .Column { free_remaining -= sizes[i].y }
-					else                      { free_remaining -= sizes[i].x }
+					if s.direction ==
+					   .Column {free_remaining -= sizes[i].y} else {free_remaining -= sizes[i].x}
 				} else if weights[i] > 0 {
 					free_weight += weights[i]
 				}
 			}
-			if free_remaining < 0 { free_remaining = 0 }
-			if free_weight == 0   { break }
+			if free_remaining < 0 {free_remaining = 0}
+			if free_weight == 0 {break}
 
 			pinned_any := false
-			for i in 0..<n {
-				if pinned[i] || weights[i] == 0 { continue }
+			for i in 0 ..< n {
+				if pinned[i] || weights[i] == 0 {continue}
 				share := free_remaining * (weights[i] / free_weight)
 				#partial switch c in s.children[i] {
 				case View_Flex:
@@ -1900,29 +2020,27 @@ stack_render :: proc(r: ^Renderer, s: View_Stack, origin: [2]f32, size: [2]f32) 
 						pinned_any = true
 					}
 				}
-				if s.direction == .Column { sizes[i].y = share }
-				else                      { sizes[i].x = share }
+				if s.direction == .Column {sizes[i].y = share} else {sizes[i].x = share}
 			}
-			if !pinned_any { break }
+			if !pinned_any {break}
 		}
 	}
 
 	// Main alignment only has leftover to distribute when there are no
 	// flex children. With flex children, `remaining` has already been
 	// consumed.
-	lead:      f32 = 0
+	lead: f32 = 0
 	extra_gap: f32 = 0
 	if total_weight == 0 && remaining > 0 {
 		switch s.main_align {
 		case .Start:
-			// leading offset 0; leftover trails naturally at the end.
+		// leading offset 0; leftover trails naturally at the end.
 		case .Center:
 			lead = remaining / 2
 		case .End:
 			lead = remaining
 		case .Space_Between:
-			if n > 1 { extra_gap = remaining / f32(n - 1) }
-			else     { lead = remaining / 2 }
+			if n > 1 {extra_gap = remaining / f32(n - 1)} else {lead = remaining / 2}
 		case .Space_Around:
 			lead = remaining / f32(n * 2)
 			extra_gap = remaining / f32(n)
@@ -1930,14 +2048,12 @@ stack_render :: proc(r: ^Renderer, s: View_Stack, origin: [2]f32, size: [2]f32) 
 	}
 
 	cursor := [2]f32{origin.x + s.padding, origin.y + s.padding}
-	if s.direction == .Column { cursor.y += lead }
-	else                      { cursor.x += lead }
+	if s.direction == .Column {cursor.y += lead} else {cursor.x += lead}
 
 	for child, i in s.children {
 		// Stretch expands the cross axis to the stack's inner cross.
 		if s.cross_align == .Stretch {
-			if s.direction == .Column { sizes[i].x = inner_cross }
-			else                      { sizes[i].y = inner_cross }
+			if s.direction == .Column {sizes[i].x = inner_cross} else {sizes[i].y = inner_cross}
 		}
 
 		child_cross := s.direction == .Column ? sizes[i].x : sizes[i].y
@@ -1952,16 +2068,16 @@ stack_render :: proc(r: ^Renderer, s: View_Stack, origin: [2]f32, size: [2]f32) 
 		}
 
 		child_origin := cursor
-		if s.direction == .Column { child_origin.x += cross_offset }
-		else                      { child_origin.y += cross_offset }
+		if s.direction ==
+		   .Column {child_origin.x += cross_offset} else {child_origin.y += cross_offset}
 
 		render_view(r, child, child_origin, sizes[i])
 
 		step := s.direction == .Column ? sizes[i].y : sizes[i].x
-		if s.direction == .Column { cursor.y += step } else { cursor.x += step }
+		if s.direction == .Column {cursor.y += step} else {cursor.x += step}
 		if i < n - 1 {
 			gap := s.spacing + extra_gap
-			if s.direction == .Column { cursor.y += gap } else { cursor.x += gap }
+			if s.direction == .Column {cursor.y += gap} else {cursor.x += gap}
 		}
 	}
 }

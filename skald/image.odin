@@ -482,6 +482,19 @@ image_update_pixels :: proc(r: ^Renderer, name: string, w, h: u32, rgba: []u8) -
 	}
 	entry, ok := r.images.entries[name]
 	if !ok || entry == nil { return false }
+	return image_update_entry_pixels(r, entry, w, h, rgba)
+}
+
+@(private)
+image_update_entry_pixels :: proc(
+	r: ^Renderer,
+	entry: ^Image_Entry,
+	w, h: u32,
+	rgba: []u8,
+) -> bool {
+	if r == nil || r.device == nil || entry == nil { return false }
+	if w == 0 || h == 0 { return false }
+	if int(w) * int(h) * 4 != len(rgba) { return false }
 	if entry.width != w || entry.height != h { return false }
 
 	full_range := vk.ImageSubresourceRange{
@@ -562,11 +575,91 @@ draw_image :: proc(
 	if r == nil { return false }
 	entry := image_cache_get(r, name)
 	if entry == nil { return false }
+	return image_draw_entry(r, entry, rect, fit, tint)
+}
+
+@(private)
+image_draw_entry :: proc(
+	r: ^Renderer,
+	entry: ^Image_Entry,
+	rect: Rect,
+	fit: Image_Fit = .Cover,
+	tint: Color = {1, 1, 1, 1},
+) -> bool {
+	if r == nil || entry == nil { return false }
 	pos, uv := image_fit_rects(rect, f32(entry.width), f32(entry.height), fit)
 	push_clip(r, rect)
 	batch_push_image(r, entry.dset, pos, uv, tint)
 	pop_clip(r)
 	return true
+}
+
+image_load_path_ctx :: proc(r: ^Render_Context, path: string) -> Backend_Image {
+	assert(r != nil, "image_load_path_ctx requires render context")
+	assert(r.backend != nil, "image_load_path_ctx requires backend")
+	assert(
+		r.backend.images.load_path != nil,
+		"image_load_path_ctx requires images.load_path callback",
+	)
+	return r.backend.images.load_path(r.backend.state, path)
+}
+
+image_load_pixels_ctx :: proc(
+	r: ^Render_Context,
+	name: string,
+	w, h: u32,
+	rgba: []u8,
+) -> Backend_Image {
+	assert(r != nil, "image_load_pixels_ctx requires render context")
+	assert(r.backend != nil, "image_load_pixels_ctx requires backend")
+	assert(
+		r.backend.images.load_pixels != nil,
+		"image_load_pixels_ctx requires images.load_pixels callback",
+	)
+	return r.backend.images.load_pixels(r.backend.state, name, w, h, rgba)
+}
+
+image_update_pixels_ctx :: proc(
+	r: ^Render_Context,
+	image: Backend_Image,
+	w, h: u32,
+	rgba: []u8,
+) -> bool {
+	assert(r != nil, "image_update_pixels_ctx requires render context")
+	assert(r.backend != nil, "image_update_pixels_ctx requires backend")
+	assert(
+		r.backend.images.update_pixels != nil,
+		"image_update_pixels_ctx requires images.update_pixels callback",
+	)
+	return r.backend.images.update_pixels(r.backend.state, image, w, h, rgba)
+}
+
+draw_image_ctx :: proc(
+	r: ^Render_Context,
+	image: Backend_Image,
+	rect: Rect,
+	tint: Color = Color{1, 1, 1, 1},
+) {
+	assert(r != nil, "draw_image_ctx requires render context")
+	assert(r.backend != nil, "draw_image_ctx requires backend")
+	assert(r.backend.images.draw != nil, "draw_image_ctx requires images.draw callback")
+	r.backend.images.draw(r.backend.state, image, rect, tint)
+}
+
+draw_image_fit_ctx :: proc(
+	r: ^Render_Context,
+	image: Backend_Image,
+	rect: Rect,
+	fit: Image_Fit = .Cover,
+	tint: Color = Color{1, 1, 1, 1},
+) -> bool {
+	assert(r != nil, "draw_image_fit_ctx requires render context")
+	assert(r.backend != nil, "draw_image_fit_ctx requires backend")
+	assert(
+		r.backend.images.draw_fit != nil,
+		"draw_image_fit_ctx requires images.draw_fit callback",
+	)
+	return r.backend.images.draw_fit(r.backend.state, image, rect, fit, tint)
 }
 
 // image_unload drops a registered image, releasing its GPU resources.

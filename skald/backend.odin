@@ -95,6 +95,13 @@ Backend_Images :: struct {
 	update_pixels: proc(state: rawptr, image: Backend_Image, w, h: u32, rgba: []u8) -> bool,
 	unload:        proc(state: rawptr, image: Backend_Image),
 	draw:          proc(state: rawptr, image: Backend_Image, rect: Rect, tint: Color),
+	draw_fit:      proc(
+		state: rawptr,
+		image: Backend_Image,
+		rect: Rect,
+		fit: Image_Fit,
+		tint: Color,
+	) -> bool,
 }
 
 Backend_Input :: struct {
@@ -198,6 +205,14 @@ renderer_backend :: proc(r: ^Renderer) -> Backend {
 			draw = renderer_backend_text_draw,
 			span_font = renderer_backend_text_span_font,
 		},
+		images = Backend_Images {
+			load_path = renderer_backend_image_load_path,
+			load_pixels = renderer_backend_image_load_pixels,
+			update_pixels = renderer_backend_image_update_pixels,
+			unload = renderer_backend_image_unload,
+			draw = renderer_backend_image_draw,
+			draw_fit = renderer_backend_image_draw_fit,
+		},
 	}
 }
 
@@ -276,4 +291,55 @@ renderer_backend_text_draw :: proc(
 
 renderer_backend_text_span_font :: proc(state: rawptr, base_font: Font, span: Text_Span) -> Font {
 	return rich_span_font((^Renderer)(state), base_font, span)
+}
+
+renderer_backend_image_load_path :: proc(state: rawptr, path: string) -> Backend_Image {
+	entry := image_cache_get((^Renderer)(state), path)
+	if entry == nil {return Backend_Image(nil)}
+	return Backend_Image(entry)
+}
+
+renderer_backend_image_load_pixels :: proc(
+	state: rawptr,
+	name: string,
+	w, h: u32,
+	rgba: []u8,
+) -> Backend_Image {
+	r := (^Renderer)(state)
+	if !image_load_pixels(r, name, w, h, rgba) {return Backend_Image(nil)}
+	entry := image_cache_get(r, name)
+	if entry == nil {return Backend_Image(nil)}
+	return Backend_Image(entry)
+}
+
+renderer_backend_image_update_pixels :: proc(
+	state: rawptr,
+	image: Backend_Image,
+	w, h: u32,
+	rgba: []u8,
+) -> bool {
+	entry := (^Image_Entry)(rawptr(image))
+	if entry == nil {return false}
+	return image_update_entry_pixels((^Renderer)(state), entry, w, h, rgba)
+}
+
+renderer_backend_image_unload :: proc(state: rawptr, image: Backend_Image) {
+	// Backend_Image is currently a borrowed handle into the renderer's cache.
+	// The cache still owns lifetime and LRU eviction, so handle unload is a no-op.
+}
+
+renderer_backend_image_draw :: proc(state: rawptr, image: Backend_Image, rect: Rect, tint: Color) {
+	renderer_backend_image_draw_fit(state, image, rect, .Cover, tint)
+}
+
+renderer_backend_image_draw_fit :: proc(
+	state: rawptr,
+	image: Backend_Image,
+	rect: Rect,
+	fit: Image_Fit,
+	tint: Color,
+) -> bool {
+	entry := (^Image_Entry)(rawptr(image))
+	if entry == nil {return false}
+	return image_draw_entry((^Renderer)(state), entry, rect, fit, tint)
 }

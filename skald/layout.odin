@@ -1505,20 +1505,14 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		h := vv.size.y == 0 ? size.y : vv.size.y
 		box := Rect{origin.x, origin.y, w, h}
 
-		entry := image_cache_get(rr, vv.path)
-		if entry == nil {
+		img := image_load_path_ctx(r, vv.path)
+		if rawptr(img) == nil {
 			// Decode failure — draw a magenta placeholder so the bad
 			// path is visually obvious without crashing.
 			draw_rect(r, box, {1, 0, 1, 1}, 0)
 			return
 		}
-		pos, uv := image_fit_rects(box, f32(entry.width), f32(entry.height), vv.fit)
-		// Clip to the declared box so `.None` with a larger native size
-		// (or any future fit that extends past the slot) can't bleed
-		// into neighboring widgets. Matches CSS `object-fit` behavior.
-		push_clip(r, box)
-		batch_push_image(rr, entry.dset, pos, uv, vv.tint)
-		pop_clip(r)
+		draw_image_fit_ctx(r, img, box, vv.fit, vv.tint)
 
 	case View_Split:
 		// Record the container rect so next frame's builder can hit-

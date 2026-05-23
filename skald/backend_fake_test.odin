@@ -7,6 +7,7 @@ Fake_Draw_Kind :: enum {
 	Push_Clip,
 	Pop_Clip,
 	Set_Alpha,
+	Image,
 }
 
 Fake_Draw_Op :: struct {
@@ -15,10 +16,18 @@ Fake_Draw_Op :: struct {
 	color:  Color,
 	radius: f32,
 	alpha:  f32,
+	image:  Backend_Image,
+	fit:    Image_Fit,
 }
 
 Fake_Backend_State :: struct {
-	ops: [dynamic]Fake_Draw_Op,
+	ops:             [dynamic]Fake_Draw_Op,
+	image_load_path: string,
+	image_load_name: string,
+	image_w:         u32,
+	image_h:         u32,
+	image_rgba_len:  int,
+	image_updated:   bool,
 }
 
 fake_draw_rect :: proc(state: rawptr, rect: Rect, color: Color, radius: f32) {
@@ -45,6 +54,66 @@ fake_measure_text :: proc(state: rawptr, text: string, size: f32, font: Font) ->
 	return f32(len(text)) * size, size
 }
 
+fake_image_load_path :: proc(state: rawptr, path: string) -> Backend_Image {
+	s := (^Fake_Backend_State)(state)
+	s.image_load_path = path
+	if path == "" {return Backend_Image(nil)}
+	return Backend_Image(state)
+}
+
+fake_image_load_pixels :: proc(
+	state: rawptr,
+	name: string,
+	w, h: u32,
+	rgba: []u8,
+) -> Backend_Image {
+	s := (^Fake_Backend_State)(state)
+	s.image_load_name = name
+	s.image_w = w
+	s.image_h = h
+	s.image_rgba_len = len(rgba)
+	return Backend_Image(state)
+}
+
+fake_image_update_pixels :: proc(
+	state: rawptr,
+	image: Backend_Image,
+	w, h: u32,
+	rgba: []u8,
+) -> bool {
+	s := (^Fake_Backend_State)(state)
+	s.image_updated = rawptr(image) != nil
+	s.image_w = w
+	s.image_h = h
+	s.image_rgba_len = len(rgba)
+	return s.image_updated
+}
+
+fake_image_unload :: proc(state: rawptr, image: Backend_Image) {}
+
+fake_image_draw :: proc(state: rawptr, image: Backend_Image, rect: Rect, tint: Color) {
+	s := (^Fake_Backend_State)(state)
+	append(
+		&s.ops,
+		Fake_Draw_Op{kind = .Image, rect = rect, color = tint, image = image, fit = .Cover},
+	)
+}
+
+fake_image_draw_fit :: proc(
+	state: rawptr,
+	image: Backend_Image,
+	rect: Rect,
+	fit: Image_Fit,
+	tint: Color,
+) -> bool {
+	s := (^Fake_Backend_State)(state)
+	append(
+		&s.ops,
+		Fake_Draw_Op{kind = .Image, rect = rect, color = tint, image = image, fit = fit},
+	)
+	return rawptr(image) != nil
+}
+
 fake_backend :: proc(state: ^Fake_Backend_State) -> Backend {
 	return Backend {
 		state = state,
@@ -53,6 +122,14 @@ fake_backend :: proc(state: ^Fake_Backend_State) -> Backend {
 			push_clip = fake_push_clip,
 			pop_clip = fake_pop_clip,
 			set_alpha = fake_set_alpha,
+		},
+		images = Backend_Images {
+			load_path = fake_image_load_path,
+			load_pixels = fake_image_load_pixels,
+			update_pixels = fake_image_update_pixels,
+			unload = fake_image_unload,
+			draw = fake_image_draw,
+			draw_fit = fake_image_draw_fit,
 		},
 	}
 }
@@ -111,6 +188,65 @@ render_view_draws_rect_through_backend_context :: proc(t: ^testing.T) {
 	testing.expect_value(t, fake.ops[0].rect, Rect{5, 6, 10, 20})
 	testing.expect_value(t, fake.ops[0].color, rgb(0x00FF00))
 	testing.expect_value(t, fake.ops[0].radius, f32(3))
+}
+
+@(test)
+image_context_helpers_dispatch_to_backend :: proc(t: ^testing.T) {
+	fake: Fake_Backend_State
+	defer delete(fake.ops)
+
+	backend := fake_backend(&fake)
+	rc := render_context_from_backend(&backend)
+	pixels := []u8{255, 0, 0, 255}
+
+	img := image_load_pixels_ctx(&rc, "fake://pixel", 1, 1, pixels)
+	testing.expect(t, rawptr(img) != nil)
+	testing.expect_value(t, fake.image_load_name, "fake://pixel")
+	testing.expect_value(t, fake.image_w, u32(1))
+	testing.expect_value(t, fake.image_h, u32(1))
+	testing.expect_value(t, fake.image_rgba_len, 4)
+
+	updated := image_update_pixels_ctx(&rc, img, 1, 1, pixels)
+	testing.expect_value(t, updated, true)
+	testing.expect_value(t, fake.image_updated, true)
+
+	draw_image_ctx(&rc, img, Rect{1, 2, 3, 4}, rgb(0xFFFFFF))
+	if !testing.expect_value(t, len(fake.ops), 1) {
+		return
+	}
+	testing.expect_value(t, fake.ops[0].kind, Fake_Draw_Kind.Image)
+	testing.expect_value(t, fake.ops[0].rect, Rect{1, 2, 3, 4})
+	testing.expect_value(t, fake.ops[0].fit, Image_Fit.Cover)
+}
+
+@(test)
+render_view_draws_image_through_backend_context :: proc(t: ^testing.T) {
+	fake: Fake_Backend_State
+	defer delete(fake.ops)
+
+	backend := fake_backend(&fake)
+	rc := render_context_from_backend(&backend)
+
+	render_view(
+		&rc,
+		View_Image {
+			path = "fake://image",
+			size = {20, 10},
+			fit = .Contain,
+			tint = rgba(0x80FFFFFF),
+		},
+		{5, 6},
+		{100, 80},
+	)
+
+	if !testing.expect_value(t, len(fake.ops), 1) {
+		return
+	}
+	testing.expect_value(t, fake.image_load_path, "fake://image")
+	testing.expect_value(t, fake.ops[0].kind, Fake_Draw_Kind.Image)
+	testing.expect_value(t, fake.ops[0].rect, Rect{5, 6, 20, 10})
+	testing.expect_value(t, fake.ops[0].fit, Image_Fit.Contain)
+	testing.expect_value(t, fake.ops[0].color, rgba(0x80FFFFFF))
 }
 
 @(test)

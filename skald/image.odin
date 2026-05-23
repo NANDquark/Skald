@@ -127,6 +127,7 @@ IMAGE_CACHE_MAX_ENTRIES :: 256
 @(private)
 Image_Cache :: struct {
 	entries:     map[string]^Image_Entry,
+	handles:     map[string]^Backend_Image_Handle,
 	// use_counter is a monotonically increasing tick bumped on every
 	// cache hit + insert. Entries stamp the current value in their
 	// `last_use` field so `image_cache_evict_lru` can find the oldest.
@@ -737,6 +738,14 @@ image_cache_destroy :: proc(c: ^Image_Cache, r: ^Renderer) {
 		}
 		delete(c.entries)
 		c.entries = nil
+	}
+	if c.handles != nil {
+		for key, handle in c.handles {
+			if handle != nil { free(handle) }
+			delete(key)
+		}
+		delete(c.handles)
+		c.handles = nil
 	}
 	if c.dset_pool != 0 {
 		vk.DestroyDescriptorPool(r.device, c.dset_pool, nil)

@@ -7,7 +7,7 @@ Backend_Image :: distinct rawptr
 Backend_Image_Handle :: struct {
 	key:   string,
 	path:  bool,
-	owned: bool,
+	alive: bool,
 }
 
 Backend_Capability :: enum {
@@ -302,9 +302,10 @@ renderer_backend_text_span_font :: proc(state: rawptr, base_font: Font, span: Te
 }
 
 renderer_backend_image_load_path :: proc(state: rawptr, path: string) -> Backend_Image {
-	entry := image_cache_get((^Renderer)(state), path)
+	r := (^Renderer)(state)
+	entry := image_cache_get(r, path)
 	if entry == nil {return Backend_Image(nil)}
-	return renderer_backend_image_handle(path, true)
+	return renderer_backend_image_handle(r, path, true)
 }
 
 renderer_backend_image_load_pixels :: proc(
@@ -317,7 +318,7 @@ renderer_backend_image_load_pixels :: proc(
 	if !image_load_pixels(r, name, w, h, rgba) {return Backend_Image(nil)}
 	entry := image_cache_get(r, name)
 	if entry == nil {return Backend_Image(nil)}
-	return renderer_backend_image_handle(name, false)
+	return renderer_backend_image_handle(r, name, false)
 }
 
 renderer_backend_image_update_pixels :: proc(
@@ -327,20 +328,17 @@ renderer_backend_image_update_pixels :: proc(
 	rgba: []u8,
 ) -> bool {
 	handle := (^Backend_Image_Handle)(rawptr(image))
-	if handle == nil || handle.path {return false}
+	if handle == nil || !handle.alive || handle.path {return false}
 	return image_update_pixels((^Renderer)(state), handle.key, w, h, rgba)
 }
 
 renderer_backend_image_unload :: proc(state: rawptr, image: Backend_Image) {
 	handle := (^Backend_Image_Handle)(rawptr(image))
-	if handle == nil {return}
+	if handle == nil || !handle.alive {return}
 	if !handle.path {
 		image_unload((^Renderer)(state), handle.key)
 	}
-	if handle.owned {
-		delete(handle.key)
-		free(handle)
-	}
+	handle.alive = false
 }
 
 renderer_backend_image_draw :: proc(state: rawptr, image: Backend_Image, rect: Rect, tint: Color) {
@@ -355,18 +353,39 @@ renderer_backend_image_draw_fit :: proc(
 	tint: Color,
 ) -> bool {
 	handle := (^Backend_Image_Handle)(rawptr(image))
-	if handle == nil {return false}
-	entry := image_cache_get((^Renderer)(state), handle.key)
+	if handle == nil || !handle.alive {return false}
+	r := (^Renderer)(state)
+	entry: ^Image_Entry
+	if handle.path {
+		entry = image_cache_get(r, handle.key)
+	} else if r.images.entries != nil {
+		entry = r.images.entries[handle.key]
+		if entry != nil {
+			r.images.use_counter += 1
+			entry.last_use = r.images.use_counter
+		}
+	}
 	if entry == nil {return false}
-	return image_draw_entry((^Renderer)(state), entry, rect, fit, tint)
+	return image_draw_entry(r, entry, rect, fit, tint)
 }
 
-renderer_backend_image_handle :: proc(key: string, path: bool) -> Backend_Image {
-	handle := new(Backend_Image_Handle)
-	handle^ = Backend_Image_Handle {
-		key = strings.clone(key),
-		path = path,
-		owned = true,
+renderer_backend_image_handle :: proc(r: ^Renderer, key: string, path: bool) -> Backend_Image {
+	if key == "" {return Backend_Image(nil)}
+	if r.images.handles == nil {
+		r.images.handles = make(map[string]^Backend_Image_Handle)
 	}
+	if handle, ok := r.images.handles[key]; ok && handle != nil {
+		handle.path = path
+		handle.alive = true
+		return Backend_Image(handle)
+	}
+	handle := new(Backend_Image_Handle)
+	cloned := strings.clone(key)
+	handle^ = Backend_Image_Handle {
+		key = cloned,
+		path = path,
+		alive = true,
+	}
+	r.images.handles[cloned] = handle
 	return Backend_Image(handle)
 }

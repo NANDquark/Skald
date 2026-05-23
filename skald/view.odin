@@ -6457,9 +6457,16 @@ _combobox_impl :: proc(
 		if needs_scroll { chrome += 10 } // SCROLLBAR_GUTTER from scroll
 		content_w := max_label_w + chrome
 		if content_w > overlay_w { overlay_w = content_w }
-		fb_w := f32(ctx.renderer.fb_size.x)
-		max_overlay_w := fb_w - 16
-		if max_overlay_w < overlay_w { overlay_w = max_overlay_w }
+		fb_w: f32
+		if ctx.render != nil {
+			fb_w = f32(ctx.render.frame_size.x)
+		} else if ctx.renderer != nil {
+			fb_w = f32(ctx.renderer.fb_size.x)
+		}
+		if fb_w > 0 {
+			max_overlay_w := fb_w - 16
+			if max_overlay_w < overlay_w { overlay_w = max_overlay_w }
+		}
 	}
 
 	// Dropdown scroll offset (only meaningful when needs_scroll).

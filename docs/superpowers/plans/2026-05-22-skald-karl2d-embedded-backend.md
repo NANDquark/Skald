@@ -24,9 +24,10 @@ Current implementation state:
 - Complete: Task 6, committed as `acf07df refactor: route view images through backend service`, with follow-up fixes `bf4e59a` and `3c266ce`.
 - Complete: Task 7, committed as `1820b3c feat: add karl2d backend package skeleton`.
 - Complete: Task 8, committed as `723134d feat: translate karl2d input to skald input`.
-- Next task: Task 9, "Embedded Frame and Message Processing".
+- Complete: Task 9, committed as `8ef0ea6 feat: add embedded skald frame loop`.
+- Next task: Task 10, "Karl2D Text and Image Services".
 - Last verified commands after Task 6: `odin test ./skald -collection:gui=. -define:SKALD_RUNA=false` passed with 16 tests, `./build.sh 20_image` passed, and `./build.sh 07_counter` passed.
-- Current branch: `main`, with `HEAD` at `723134d`.
+- Current branch: `main`, with `HEAD` at `8ef0ea6`.
 - Dirty worktree items to preserve: `.gitmodules` and `karl2d` are staged additions that predate this plan execution, and `.superpowers/` is untracked. Do not stage, unstage, modify, remove, or include them in commits unless the user explicitly asks.
 - Commit discipline for remaining tasks: always use explicit pathspecs, for example `git commit -m "..." -- skald/file.odin ...`, so unrelated staged files are not committed.
 
@@ -44,6 +45,8 @@ Implemented details that differ from the original task skeleton:
 - `skald_karl2d` now exists as a library package with backend draw/window/input skeletons and a public `Context` for embedded use. It intentionally does not own the Karl2D game frame or present path; `frame_begin`/`frame_end` are no-ops because Karl2D remains responsible for the window and game rendering loop.
 - Task 7 check command should use library mode: `odin check ./skald_karl2d -collection:gui=. -no-entry-point`. Plain `odin check ./skald_karl2d -collection:gui=.` fails with "Undefined entry point procedure 'main'" because `skald_karl2d` is not an executable package.
 - Karl2D input translation now maps Skald's supported editing keys, letters, digit row, function keys, punctuation keys, released edges, and held modifiers. Numpad keys and text-input character composition remain future backend work with the text service.
+- Embedded frame processing now lives in `skald_karl2d.frame(ctx)`. It translates Karl2D input, builds/renders the app view over the existing Karl2D frame, derives `Input_Capture` from the current widget rects, drains Skald commands/messages, and resets the frame allocator. Capture frame regions are intentionally not stored past the frame because they are allocated from `context.temp_allocator`.
+- Embedded command runtime lives in `skald/embedded_runtime.odin`. Window-open/close commands are ignored in embedded mode via a nil `windows_pending` guard in `process_command`; Karl2D remains the window owner.
 - Gamepad-to-UI navigation remains a future desired enhancement. `Gamepad_Navigation` is only a capability flag for now; no navigation mapping is implemented yet.
 
 ## File Structure
@@ -1237,13 +1240,15 @@ git commit -m "feat: translate karl2d input to skald input"
 
 ## Task 9: Embedded Frame and Message Processing
 
+Status: complete in commit `8ef0ea6`.
+
 **Files:**
 - Modify: `skald_karl2d/embedded.odin`
 - Create: `skald/embedded_runtime.odin`
 - Modify: `skald/backend.odin`
 - Modify: `skald/app.odin`
 
-- [ ] **Step 1: Add Skald-owned embedded command runtime**
+- [x] **Step 1: Add Skald-owned embedded command runtime**
 
 Create `skald/embedded_runtime.odin`:
 
@@ -1313,7 +1318,7 @@ case .Open_Window, .Close_Window:
 }
 ```
 
-- [ ] **Step 2: Implement embedded frame**
+- [x] **Step 2: Implement embedded frame**
 
 In `skald_karl2d/embedded.odin`, add fields to `Context`:
 
@@ -1369,17 +1374,19 @@ breakpoint :: proc(width: f32) -> Breakpoint {
 
 and call `skald.breakpoint(...)`.
 
-- [ ] **Step 3: Check embedded package**
+- [x] **Step 3: Check embedded package**
 
 Run:
 
 ```bash
-odin check ./skald_karl2d -collection:gui=.
+odin check ./skald_karl2d -collection:gui=. -no-entry-point
 ```
+
+Result: passes. Also verified `odin test ./skald -collection:gui=. -define:SKALD_RUNA=false` passes 16 tests.
 
 Expected: check succeeds after adjusting access to exported Skald helpers. If private Skald types block this task, export the smallest required helper instead of making whole subsystems public.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add skald/app.odin skald_karl2d/embedded.odin

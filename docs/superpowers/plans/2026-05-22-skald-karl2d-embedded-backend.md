@@ -26,9 +26,10 @@ Current implementation state:
 - Complete: Task 8, committed as `723134d feat: translate karl2d input to skald input`.
 - Complete: Task 9, committed as `8ef0ea6 feat: add embedded skald frame loop`.
 - Complete: Task 10, committed as `a7c3ab3 feat: add karl2d text and image backend services`.
-- Next task: Task 11, "Karl2D Overlay Example".
+- Complete: Task 11, committed as `0b14b7b feat: add karl2d skald overlay example`.
+- Next task: Task 12, "Verification and Documentation".
 - Last verified commands after Task 6: `odin test ./skald -collection:gui=. -define:SKALD_RUNA=false` passed with 16 tests, `./build.sh 20_image` passed, and `./build.sh 07_counter` passed.
-- Current branch: `main`, with `HEAD` at `a7c3ab3`.
+- Current branch: `main`, with `HEAD` at `0b14b7b`.
 - Dirty worktree items to preserve: `.gitmodules` and `karl2d` are staged additions that predate this plan execution, and `.superpowers/` is untracked. Do not stage, unstage, modify, remove, or include them in commits unless the user explicitly asks.
 - Commit discipline for remaining tasks: always use explicit pathspecs, for example `git commit -m "..." -- skald/file.odin ...`, so unrelated staged files are not committed.
 
@@ -50,6 +51,7 @@ Implemented details that differ from the original task skeleton:
 - Embedded command runtime lives in `skald/embedded_runtime.odin`. Window-open/close commands are ignored in embedded mode via a nil `windows_pending` guard in `process_command`; Karl2D remains the window owner.
 - Karl2D text service is a compatibility shim over Karl2D's font API. It maps Skald font handles to Karl2D dynamic fonts, uses Karl2D measurement/draw calls, treats ascent as `size`, and leaves rich text span font styling as a pass-through until a fuller font bridge exists.
 - Karl2D image service caches path and pixel images by key in `Backend_State`, supports update/unload/draw-fit, and reuses dead handles when a key is loaded again. It intentionally keeps image ownership inside the adapter rather than reusing Skald's Vulkan image cache.
+- `examples/50_karl2d_overlay` demonstrates Skald rendered over a Karl2D scene. It calls `skald_karl2d.frame(&ui)` after game drawing, reads `skald_karl2d.capture(&ui)`, and only applies WASD game movement when Skald is not capturing keyboard input. The generic `build.sh` already supports it, so no build script change was required.
 - Gamepad-to-UI navigation remains a future desired enhancement. `Gamepad_Navigation` is only a capability flag for now; no navigation mapping is implemented yet.
 
 ## File Structure
@@ -1535,11 +1537,13 @@ git commit -m "feat: add karl2d text and image backend services"
 
 ## Task 11: Karl2D Overlay Example
 
+Status: complete in commit `0b14b7b`.
+
 **Files:**
 - Create: `examples/50_karl2d_overlay/main.odin`
 - Modify: `build.sh`
 
-- [ ] **Step 1: Create example**
+- [x] **Step 1: Create example**
 
 Create `examples/50_karl2d_overlay/main.odin`:
 
@@ -1633,7 +1637,7 @@ main :: proc() {
 }
 ```
 
-- [ ] **Step 2: Build example**
+- [x] **Step 2: Build example**
 
 Run:
 
@@ -1643,7 +1647,9 @@ odin build examples/50_karl2d_overlay -collection:gui=. -debug -out:build/50_kar
 
 Expected: build succeeds.
 
-- [ ] **Step 3: Run manual smoke test**
+Result: direct build succeeded. `./build.sh 50_karl2d_overlay` also succeeded without modifying `build.sh`.
+
+- [x] **Step 3: Run manual smoke test**
 
 Run:
 
@@ -1658,7 +1664,9 @@ Expected:
 - Focusing the text input captures keyboard input so WASD no longer moves the circle.
 - Clicking outside the Skald UI returns keyboard/mouse control to the game.
 
-- [ ] **Step 4: Commit**
+Result: bounded launch via `timeout 3s ./build/50_karl2d_overlay` initialized Karl2D and stayed alive until timeout. Interactive behavior still needs a human-run smoke test in a desktop session.
+
+- [x] **Step 4: Commit**
 
 ```bash
 git add examples/50_karl2d_overlay/main.odin build.sh

@@ -11,6 +11,8 @@ Backend_State :: struct {
 	frame_state:  skald.Capture_Frame_State,
 	alpha:        f32,
 	clip_stack:   [dynamic]skald.Rect,
+	fonts:        [dynamic]k2.Font,
+	images:       map[string]^Image_Entry,
 }
 
 backend_state_init :: proc(s: ^Backend_State) {
@@ -20,6 +22,14 @@ backend_state_init :: proc(s: ^Backend_State) {
 backend_state_destroy :: proc(s: ^Backend_State) {
 	delete(s.clip_stack)
 	s.clip_stack = nil
+	for font in s.fonts {
+		if font != k2.FONT_DEFAULT && font != k2.FONT_NONE {
+			k2.destroy_font(font)
+		}
+	}
+	delete(s.fonts)
+	s.fonts = nil
+	k2_image_cache_destroy(s)
 }
 
 backend :: proc(state: ^Backend_State) -> skald.Backend {
@@ -34,6 +44,22 @@ backend :: proc(state: ^Backend_State) -> skald.Backend {
 			push_clip = push_clip,
 			pop_clip = pop_clip,
 			set_alpha = set_alpha,
+		},
+		text = skald.Backend_Text {
+			load_font = k2_load_font,
+			measure = k2_measure_text,
+			wrap = k2_wrap_text,
+			ascent = k2_text_ascent,
+			draw = k2_draw_text,
+			span_font = k2_span_font,
+		},
+		images = skald.Backend_Images {
+			load_path = k2_image_load_path,
+			load_pixels = k2_image_load_pixels,
+			update_pixels = k2_image_update_pixels,
+			unload = k2_image_unload,
+			draw = k2_image_draw,
+			draw_fit = k2_image_draw_fit,
 		},
 		input = skald.Backend_Input{snapshot = input_snapshot, capture = input_capture},
 		window = skald.Backend_Window {

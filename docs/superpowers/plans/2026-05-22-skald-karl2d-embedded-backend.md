@@ -25,9 +25,10 @@ Current implementation state:
 - Complete: Task 7, committed as `1820b3c feat: add karl2d backend package skeleton`.
 - Complete: Task 8, committed as `723134d feat: translate karl2d input to skald input`.
 - Complete: Task 9, committed as `8ef0ea6 feat: add embedded skald frame loop`.
-- Next task: Task 10, "Karl2D Text and Image Services".
+- Complete: Task 10, committed as `a7c3ab3 feat: add karl2d text and image backend services`.
+- Next task: Task 11, "Karl2D Overlay Example".
 - Last verified commands after Task 6: `odin test ./skald -collection:gui=. -define:SKALD_RUNA=false` passed with 16 tests, `./build.sh 20_image` passed, and `./build.sh 07_counter` passed.
-- Current branch: `main`, with `HEAD` at `8ef0ea6`.
+- Current branch: `main`, with `HEAD` at `a7c3ab3`.
 - Dirty worktree items to preserve: `.gitmodules` and `karl2d` are staged additions that predate this plan execution, and `.superpowers/` is untracked. Do not stage, unstage, modify, remove, or include them in commits unless the user explicitly asks.
 - Commit discipline for remaining tasks: always use explicit pathspecs, for example `git commit -m "..." -- skald/file.odin ...`, so unrelated staged files are not committed.
 
@@ -47,6 +48,8 @@ Implemented details that differ from the original task skeleton:
 - Karl2D input translation now maps Skald's supported editing keys, letters, digit row, function keys, punctuation keys, released edges, and held modifiers. Numpad keys and text-input character composition remain future backend work with the text service.
 - Embedded frame processing now lives in `skald_karl2d.frame(ctx)`. It translates Karl2D input, builds/renders the app view over the existing Karl2D frame, derives `Input_Capture` from the current widget rects, drains Skald commands/messages, and resets the frame allocator. Capture frame regions are intentionally not stored past the frame because they are allocated from `context.temp_allocator`.
 - Embedded command runtime lives in `skald/embedded_runtime.odin`. Window-open/close commands are ignored in embedded mode via a nil `windows_pending` guard in `process_command`; Karl2D remains the window owner.
+- Karl2D text service is a compatibility shim over Karl2D's font API. It maps Skald font handles to Karl2D dynamic fonts, uses Karl2D measurement/draw calls, treats ascent as `size`, and leaves rich text span font styling as a pass-through until a fuller font bridge exists.
+- Karl2D image service caches path and pixel images by key in `Backend_State`, supports update/unload/draw-fit, and reuses dead handles when a key is loaded again. It intentionally keeps image ownership inside the adapter rather than reusing Skald's Vulkan image cache.
 - Gamepad-to-UI navigation remains a future desired enhancement. `Gamepad_Navigation` is only a capability flag for now; no navigation mapping is implemented yet.
 
 ## File Structure
@@ -1395,12 +1398,14 @@ git commit -m "feat: add embedded skald frame loop"
 
 ## Task 10: Karl2D Text and Image Services
 
+Status: complete in commit `a7c3ab3`.
+
 **Files:**
 - Modify: `skald_karl2d/backend.odin`
 - Create: `skald_karl2d/text.odin`
 - Create: `skald_karl2d/image.odin`
 
-- [ ] **Step 1: Implement Karl2D text compatibility service**
+- [x] **Step 1: Implement Karl2D text compatibility service**
 
 Create `skald_karl2d/text.odin`:
 
@@ -1454,7 +1459,7 @@ text = skald.Backend_Text{
 },
 ```
 
-- [ ] **Step 2: Implement Karl2D image service**
+- [x] **Step 2: Implement Karl2D image service**
 
 Create `skald_karl2d/image.odin`:
 
@@ -1511,17 +1516,17 @@ images = skald.Backend_Images{
 },
 ```
 
-- [ ] **Step 3: Check package**
+- [x] **Step 3: Check package**
 
 Run:
 
 ```bash
-odin check ./skald_karl2d -collection:gui=.
+odin check ./skald_karl2d -collection:gui=. -no-entry-point
 ```
 
-Expected: check succeeds.
+Result: passes. Also verified `odin test ./skald -collection:gui=. -define:SKALD_RUNA=false` passes 16 tests.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add skald_karl2d/backend.odin skald_karl2d/text.odin skald_karl2d/image.odin

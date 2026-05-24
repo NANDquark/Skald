@@ -27,9 +27,10 @@ Current implementation state:
 - Complete: Task 9, committed as `8ef0ea6 feat: add embedded skald frame loop`.
 - Complete: Task 10, committed as `a7c3ab3 feat: add karl2d text and image backend services`.
 - Complete: Task 11, committed as `0b14b7b feat: add karl2d skald overlay example`.
-- Next task: Task 12, "Verification and Documentation".
+- Complete: Task 12, committed as `5ebcdc1 docs: document karl2d embedded backend`.
+- Next task: no remaining planned implementation tasks in this plan.
 - Last verified commands after Task 6: `odin test ./skald -collection:gui=. -define:SKALD_RUNA=false` passed with 16 tests, `./build.sh 20_image` passed, and `./build.sh 07_counter` passed.
-- Current branch: `main`, with `HEAD` at `0b14b7b`.
+- Current branch: `main`, with `HEAD` at `5ebcdc1`.
 - Dirty worktree items to preserve: `.gitmodules` and `karl2d` are staged additions that predate this plan execution, and `.superpowers/` is untracked. Do not stage, unstage, modify, remove, or include them in commits unless the user explicitly asks.
 - Commit discipline for remaining tasks: always use explicit pathspecs, for example `git commit -m "..." -- skald/file.odin ...`, so unrelated staged files are not committed.
 
@@ -52,6 +53,8 @@ Implemented details that differ from the original task skeleton:
 - Karl2D text service is a compatibility shim over Karl2D's font API. It maps Skald font handles to Karl2D dynamic fonts, uses Karl2D measurement/draw calls, treats ascent as `size`, and leaves rich text span font styling as a pass-through until a fuller font bridge exists.
 - Karl2D image service caches path and pixel images by key in `Backend_State`, supports update/unload/draw-fit, and reuses dead handles when a key is loaded again. It intentionally keeps image ownership inside the adapter rather than reusing Skald's Vulkan image cache.
 - `examples/50_karl2d_overlay` demonstrates Skald rendered over a Karl2D scene. It calls `skald_karl2d.frame(&ui)` after game drawing, reads `skald_karl2d.capture(&ui)`, and only applies WASD game movement when Skald is not capturing keyboard input. The generic `build.sh` already supports it, so no build script change was required.
+- Public docs now mention the backend-service architecture, Karl2D embedding path, and `50_karl2d_overlay` example.
+- Final verification passed: `odin test ./skald -collection:gui=. -define:SKALD_RUNA=false`, `odin check ./skald_karl2d -collection:gui=. -no-entry-point`, `./build.sh 07_counter`, `./build.sh 08_text_input`, and `odin build examples/50_karl2d_overlay -collection:gui=. -debug -out:build/50_karl2d_overlay`.
 - Gamepad-to-UI navigation remains a future desired enhancement. `Gamepad_Navigation` is only a capability flag for now; no navigation mapping is implemented yet.
 
 ## File Structure
@@ -1675,12 +1678,14 @@ git commit -m "feat: add karl2d skald overlay example"
 
 ## Task 12: Verification and Documentation
 
+Status: complete in commit `5ebcdc1`.
+
 **Files:**
 - Modify: `docs/architecture.md`
 - Modify: `README.md`
 - Modify: `docs/examples.md`
 
-- [ ] **Step 1: Document embedded backend**
+- [x] **Step 1: Document embedded backend**
 
 Add a short section to `docs/architecture.md` after "Rendering pipeline":
 
@@ -1696,7 +1701,7 @@ builds and renders a UI tree inside that loop and reports input capture
 flags so uncaptured input remains available to game systems.
 ```
 
-- [ ] **Step 2: Add README note**
+- [x] **Step 2: Add README note**
 
 Add under README "Highlights":
 
@@ -1707,7 +1712,7 @@ Add under README "Highlights":
   uncaptured input.
 ```
 
-- [ ] **Step 3: Add example index entry**
+- [x] **Step 3: Add example index entry**
 
 Add to `docs/examples.md`:
 
@@ -1716,13 +1721,13 @@ Add to `docs/examples.md`:
   keyboard pass-through, UI capture, a button, and text input.
 ```
 
-- [ ] **Step 4: Full verification**
+- [x] **Step 4: Full verification**
 
 Run:
 
 ```bash
 odin test ./skald -collection:gui=. -define:SKALD_RUNA=false
-odin check ./skald_karl2d -collection:gui=.
+odin check ./skald_karl2d -collection:gui=. -no-entry-point
 ./build.sh 07_counter
 ./build.sh 08_text_input
 odin build examples/50_karl2d_overlay -collection:gui=. -debug -out:build/50_karl2d_overlay
@@ -1730,7 +1735,9 @@ odin build examples/50_karl2d_overlay -collection:gui=. -debug -out:build/50_kar
 
 Expected: all commands exit 0.
 
-- [ ] **Step 5: Commit docs**
+Result: all commands exited 0, using `odin check ./skald_karl2d -collection:gui=. -no-entry-point` because `skald_karl2d` is a library package.
+
+- [x] **Step 5: Commit docs**
 
 ```bash
 git add docs/architecture.md README.md docs/examples.md

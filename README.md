@@ -40,6 +40,10 @@ actual numbers.
   GPU (Linux); capped by display refresh on macOS.
 - **GPU rendering** — pure-Odin Vulkan 1.3 backend (`vendor:vulkan`), one
   pipeline for rects + text + images.
+- **Embeddable backend path** — Skald can be hosted by Karl2D as an
+  overlay UI layer. The host game owns the window and game rendering;
+  Skald reports mouse/keyboard/text capture so game systems receive only
+  uncaptured input.
 - **Two text backends** — the pure-Odin `runa` engine ships vendored
   at `skald/third_party/runa/` and is the default since 1.0: full
   OpenType shaping (ligatures, GPOS kerning), COLRv0 + COLRv1 colour

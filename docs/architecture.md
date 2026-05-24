@@ -251,6 +251,16 @@ hit-testing doesn't wait for the draw pass.
 
 Images are uploaded lazily on first reference and cached by path.
 
+## Backend services
+
+Skald's UI core can render through backend services instead of talking
+directly to a windowing or graphics API. The current desktop runtime wraps
+the existing SDL3/Vulkan renderer through a compatibility backend. The
+Karl2D adapter implements the same service shape for embedded overlays:
+Karl2D owns the window, event pump, game draw, and present call; Skald
+builds and renders a UI tree inside that loop and reports input capture
+flags so uncaptured input remains available to game systems.
+
 ## Further reading
 
 - `skald/app.odin` — `run`, the main loop.

@@ -22,9 +22,10 @@ Current implementation state:
 - Complete: Task 4, committed as `6455f7e refactor: render layout through backend context`, with follow-up fixes `b2f906f`, `200b2d6`, and `36309e9`.
 - Complete: Task 5, committed as `f8afa6f refactor: route layout text through backend service`, with follow-up fixes `03ab056`, `53a2579`, `3e65bc9`, and `52bcb82`.
 - Complete: Task 6, committed as `acf07df refactor: route view images through backend service`, with follow-up fixes `bf4e59a` and `3c266ce`.
-- Next task: Task 7, "Karl2D Backend Package Skeleton".
+- Complete: Task 7, committed as `1820b3c feat: add karl2d backend package skeleton`.
+- Next task: Task 8, "Karl2D Input Translation".
 - Last verified commands after Task 6: `odin test ./skald -collection:gui=. -define:SKALD_RUNA=false` passed with 16 tests, `./build.sh 20_image` passed, and `./build.sh 07_counter` passed.
-- Current branch: `main`, with `HEAD` at `3c266ce`.
+- Current branch: `main`, with `HEAD` at `1820b3c`.
 - Dirty worktree items to preserve: `.gitmodules` and `karl2d` are staged additions that predate this plan execution, and `.superpowers/` is untracked. Do not stage, unstage, modify, remove, or include them in commits unless the user explicitly asks.
 - Commit discipline for remaining tasks: always use explicit pathspecs, for example `git commit -m "..." -- skald/file.odin ...`, so unrelated staged files are not committed.
 
@@ -39,6 +40,9 @@ Implemented details that differ from the original task skeleton:
 - `Render_Context` now owns backend-neutral per-frame layout state: frame size, scale, widget store, overlay queue, and alpha multiplier.
 - Plain text layout/render calls are routed through `Backend_Text`. Rich text wrapping also has a render-context path. Text input geometry and rich-text hit testing still use guarded renderer-only helpers and remain future backend service work.
 - `View_Image` is routed through `Backend_Images`. Renderer image backend handles are stable key-based handles owned by the renderer image cache; path handles may reload after LRU eviction, while pixel-backed handles fail cleanly after eviction until reloaded.
+- `skald_karl2d` now exists as a library package with backend draw/window/input skeletons and a public `Context` for embedded use. It intentionally does not own the Karl2D game frame or present path; `frame_begin`/`frame_end` are no-ops because Karl2D remains responsible for the window and game rendering loop.
+- Task 7 check command should use library mode: `odin check ./skald_karl2d -collection:gui=. -no-entry-point`. Plain `odin check ./skald_karl2d -collection:gui=.` fails with "Undefined entry point procedure 'main'" because `skald_karl2d` is not an executable package.
+- Task 7 currently stubs key and modifier translation helpers with empty sets so the package type-checks. Task 8 must replace those helpers with real Karl2D-to-Skald key/modifier mapping.
 - Gamepad-to-UI navigation remains a future desired enhancement. `Gamepad_Navigation` is only a capability flag for now; no navigation mapping is implemented yet.
 
 ## File Structure
@@ -960,14 +964,14 @@ git commit -m "refactor: route view images through backend service"
 
 ## Task 7: Karl2D Backend Package Skeleton
 
-Status: next task to execute.
+Status: complete in commit `1820b3c`.
 
 **Files:**
 - Create: `skald_karl2d/backend.odin`
 - Create: `skald_karl2d/input.odin`
 - Create: `skald_karl2d/embedded.odin`
 
-- [ ] **Step 1: Create package skeleton**
+- [x] **Step 1: Create package skeleton**
 
 Create `skald_karl2d/backend.odin`:
 
@@ -1138,17 +1142,17 @@ capture :: proc(ctx: ^Context($State, $Msg)) -> skald.Input_Capture {
 }
 ```
 
-- [ ] **Step 2: Run package build and fix import-level errors**
+- [x] **Step 2: Run package build and fix import-level errors**
 
 Run:
 
 ```bash
-odin check ./skald_karl2d -collection:gui=.
+odin check ./skald_karl2d -collection:gui=. -no-entry-point
 ```
 
-Expected: fails on missing key translation helpers. Continue to Task 8 for implementation.
+Result: passes. The package is a library, so `-no-entry-point` is required. The initial key/modifier helpers intentionally return empty sets and are completed in Task 8.
 
-- [ ] **Step 3: Commit skeleton**
+- [x] **Step 3: Commit skeleton**
 
 ```bash
 git add skald_karl2d

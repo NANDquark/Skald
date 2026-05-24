@@ -23,9 +23,10 @@ Current implementation state:
 - Complete: Task 5, committed as `f8afa6f refactor: route layout text through backend service`, with follow-up fixes `03ab056`, `53a2579`, `3e65bc9`, and `52bcb82`.
 - Complete: Task 6, committed as `acf07df refactor: route view images through backend service`, with follow-up fixes `bf4e59a` and `3c266ce`.
 - Complete: Task 7, committed as `1820b3c feat: add karl2d backend package skeleton`.
-- Next task: Task 8, "Karl2D Input Translation".
+- Complete: Task 8, committed as `723134d feat: translate karl2d input to skald input`.
+- Next task: Task 9, "Embedded Frame and Message Processing".
 - Last verified commands after Task 6: `odin test ./skald -collection:gui=. -define:SKALD_RUNA=false` passed with 16 tests, `./build.sh 20_image` passed, and `./build.sh 07_counter` passed.
-- Current branch: `main`, with `HEAD` at `1820b3c`.
+- Current branch: `main`, with `HEAD` at `723134d`.
 - Dirty worktree items to preserve: `.gitmodules` and `karl2d` are staged additions that predate this plan execution, and `.superpowers/` is untracked. Do not stage, unstage, modify, remove, or include them in commits unless the user explicitly asks.
 - Commit discipline for remaining tasks: always use explicit pathspecs, for example `git commit -m "..." -- skald/file.odin ...`, so unrelated staged files are not committed.
 
@@ -42,7 +43,7 @@ Implemented details that differ from the original task skeleton:
 - `View_Image` is routed through `Backend_Images`. Renderer image backend handles are stable key-based handles owned by the renderer image cache; path handles may reload after LRU eviction, while pixel-backed handles fail cleanly after eviction until reloaded.
 - `skald_karl2d` now exists as a library package with backend draw/window/input skeletons and a public `Context` for embedded use. It intentionally does not own the Karl2D game frame or present path; `frame_begin`/`frame_end` are no-ops because Karl2D remains responsible for the window and game rendering loop.
 - Task 7 check command should use library mode: `odin check ./skald_karl2d -collection:gui=. -no-entry-point`. Plain `odin check ./skald_karl2d -collection:gui=.` fails with "Undefined entry point procedure 'main'" because `skald_karl2d` is not an executable package.
-- Task 7 currently stubs key and modifier translation helpers with empty sets so the package type-checks. Task 8 must replace those helpers with real Karl2D-to-Skald key/modifier mapping.
+- Karl2D input translation now maps Skald's supported editing keys, letters, digit row, function keys, punctuation keys, released edges, and held modifiers. Numpad keys and text-input character composition remain future backend work with the text service.
 - Gamepad-to-UI navigation remains a future desired enhancement. `Gamepad_Navigation` is only a capability flag for now; no navigation mapping is implemented yet.
 
 ## File Structure
@@ -1161,10 +1162,12 @@ git commit -m "feat: add karl2d backend package skeleton"
 
 ## Task 8: Karl2D Input Translation
 
+Status: complete in commit `723134d`.
+
 **Files:**
 - Modify: `skald_karl2d/input.odin`
 
-- [ ] **Step 1: Implement key translation helpers**
+- [x] **Step 1: Implement key translation helpers**
 
 Add to `skald_karl2d/input.odin`:
 
@@ -1215,17 +1218,17 @@ modifiers_from_karl2d :: proc() -> skald.Modifiers {
 }
 ```
 
-- [ ] **Step 2: Check package**
+- [x] **Step 2: Check package**
 
 Run:
 
 ```bash
-odin check ./skald_karl2d -collection:gui=.
+odin check ./skald_karl2d -collection:gui=. -no-entry-point
 ```
 
-Expected: package check succeeds or reports missing text/image services that Task 10 adds. Fix only input translation errors in this task.
+Result: passes in library mode with `-no-entry-point`.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add skald_karl2d/input.odin

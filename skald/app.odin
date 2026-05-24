@@ -202,6 +202,10 @@ breakpoint_for_width :: proc(w: f32) -> Breakpoint {
 	return .Wide
 }
 
+breakpoint :: proc(width: f32) -> Breakpoint {
+	return breakpoint_for_width(width)
+}
+
 // send pushes a message onto the ctx's queue. Equivalent to
 // `append(ctx.msgs, m)` but reads more clearly at widget call sites.
 send :: proc(ctx: ^Ctx($Msg), m: Msg) {

@@ -284,7 +284,7 @@ process_command :: proc(
 	case .Async:
 		process_async(cmd.async, io)
 	case .Open_Window, .Close_Window:
-		if cmd.window_op != nil {
+		if cmd.window_op != nil && windows_pending != nil {
 			append(windows_pending, cmd.window_op^)
 		}
 	case .Thread:

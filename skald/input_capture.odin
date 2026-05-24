@@ -41,3 +41,34 @@ input_capture_from_frame :: proc(input: Input, frame: Capture_Frame_State) -> In
 		pointer_over_ui = over_ui,
 	}
 }
+
+capture_frame_from_widgets :: proc(widgets: ^Widget_Store) -> Capture_Frame_State {
+	if widgets == nil {return {}}
+
+	pointer_regions := make([dynamic]Rect, 0, len(widgets.states), context.temp_allocator)
+	press_owned := false
+	for _, st in widgets.states {
+		if st.last_frame != widgets.frame {continue}
+		if st.last_rect.w <= 0 || st.last_rect.h <= 0 {continue}
+		append(&pointer_regions, st.last_rect)
+		press_owned = press_owned || st.pressed || st.mouse_selecting
+	}
+
+	scroll_regions := make([dynamic]Rect, 0, len(widgets.scroll_rects), context.temp_allocator)
+	for sr in widgets.scroll_rects {
+		if sr.rect.w <= 0 || sr.rect.h <= 0 {continue}
+		append(&scroll_regions, sr.rect)
+	}
+
+	modal_open := widgets.modal_rect.w > 0 && widgets.modal_rect.h > 0
+
+	return Capture_Frame_State {
+		pointer_regions = pointer_regions[:],
+		scroll_regions = scroll_regions[:],
+		modal_open = modal_open,
+		drag_active = press_owned,
+		press_owned = press_owned,
+		wants_keyboard = widgets.focused_id != 0,
+		wants_text_input = widgets.wants_text_input,
+	}
+}

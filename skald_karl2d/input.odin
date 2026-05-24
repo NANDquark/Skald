@@ -117,8 +117,6 @@ translate_input :: proc(s: ^Backend_State) {
 	s.input.keys_pressed = keys_pressed_from_karl2d()
 	s.input.keys_released = keys_released_from_karl2d()
 	s.input.modifiers = modifiers_from_karl2d()
-
-	s.capture = skald.input_capture_from_frame(s.input, s.frame_state)
 }
 
 keys_down_from_karl2d :: proc() -> skald.Keys {

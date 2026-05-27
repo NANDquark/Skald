@@ -80,6 +80,16 @@ main :: proc() {
 	player := k2.Vec2{640, 360}
 
 	for k2.update() {
+		skald_k2.begin_frame(&ui)
+		capture := skald_k2.capture(&ui)
+
+		if !capture.keyboard {
+			if k2.key_is_held(.A) {player.x -= 4}
+			if k2.key_is_held(.D) {player.x += 4}
+			if k2.key_is_held(.W) {player.y -= 4}
+			if k2.key_is_held(.S) {player.y += 4}
+		}
+
 		k2.clear(k2.DARK_BLUE)
 		k2.draw_circle(player, 24, k2.LIGHT_GREEN)
 		k2.draw_text(
@@ -89,16 +99,7 @@ main :: proc() {
 			k2.WHITE,
 		)
 
-		skald_k2.frame(&ui)
-
-		capture := skald_k2.capture(&ui)
-		if !capture.keyboard {
-			if k2.key_is_held(.A) {player.x -= 4}
-			if k2.key_is_held(.D) {player.x += 4}
-			if k2.key_is_held(.W) {player.y -= 4}
-			if k2.key_is_held(.S) {player.y += 4}
-		}
-
+		skald_k2.end_frame(&ui)
 		k2.present()
 	}
 }

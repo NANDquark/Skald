@@ -16,6 +16,7 @@ Context :: struct($State, $Msg: typeid) {
 	overlays:      [dynamic]skald.Overlay_Entry,
 	runtime:       skald.Embedded_Runtime(Msg),
 	runtime_ready: bool,
+	frame_active:  bool,
 }
 
 init :: proc(ctx: ^Context($State, $Msg), app: skald.App(State, Msg)) -> bool {
@@ -52,14 +53,42 @@ shutdown :: proc(ctx: ^Context($State, $Msg)) {
 }
 
 frame :: proc(ctx: ^Context($State, $Msg)) {
+	begin_frame(ctx)
+	end_frame(ctx)
+}
+
+begin_frame :: proc(ctx: ^Context($State, $Msg)) {
+	assert(!ctx.frame_active, "skald_karl2d.begin_frame called while a frame is already active")
+	ctx.frame_active = true
+
 	if ctx.runtime_ready {
 		skald.embedded_runtime_begin_frame(&ctx.runtime, &ctx.msgs)
 	}
 
 	translate_input(&ctx.backend_state)
+	prev_wants_text_input := ctx.widgets.wants_text_input
+
 	skald.widget_store_frame_reset(&ctx.widgets)
 	skald.widget_store_blur_on_outside_press(&ctx.widgets, ctx.backend_state.input)
 	clear(&ctx.overlays)
+
+	sz := window_size(ctx.backend.state)
+	ctx.rc.frame_size = {u32(max(sz.x, 0)), u32(max(sz.y, 0))}
+	ctx.rc.scale = window_scale(ctx.backend.state)
+	ctx.rc.alpha_multiplier = 1
+
+	frame_state := skald.capture_frame_from_previous_widgets(
+		&ctx.widgets,
+		prev_wants_text_input,
+	)
+	ctx.backend_state.capture = skald.input_capture_from_frame(
+		ctx.backend_state.input,
+		frame_state,
+	)
+}
+
+end_frame :: proc(ctx: ^Context($State, $Msg)) {
+	assert(ctx.frame_active, "skald_karl2d.end_frame called before begin_frame")
 
 	sz := window_size(ctx.backend.state)
 	size := [2]f32{f32(sz.x), f32(sz.y)}
@@ -89,9 +118,9 @@ frame :: proc(ctx: ^Context($State, $Msg)) {
 		ctx.backend_state.input,
 		frame_state,
 	)
-	ctx.backend_state.frame_state = {}
 
 	ctx.state = drain_messages(ctx)
+	ctx.frame_active = false
 	free_all(context.temp_allocator)
 }
 

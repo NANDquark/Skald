@@ -5,14 +5,12 @@ import skald "../skald"
 import "core:time"
 
 Backend_State :: struct {
-	input:        skald.Input,
-	capture:      skald.Input_Capture,
-	capture_next: skald.Input_Capture,
-	frame_state:  skald.Capture_Frame_State,
-	alpha:        f32,
-	clip_stack:   [dynamic]skald.Rect,
-	fonts:        [dynamic]k2.Font,
-	images:       map[string]^Image_Entry,
+	input:      skald.Input,
+	capture:    skald.Input_Capture,
+	alpha:      f32,
+	clip_stack: [dynamic]skald.Rect,
+	fonts:      [dynamic]k2.Font,
+	images:     map[string]^Image_Entry,
 }
 
 backend_state_init :: proc(s: ^Backend_State) {

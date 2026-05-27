@@ -29,6 +29,26 @@ actual numbers.
 > subpixel-x positioning — and it's faster than fontstash on every
 > benched workload (gallery 2.2× faster).
 
+## Fork notes
+
+This fork keeps Skald close to upstream while adding a backend-neutral
+rendering path and a Karl2D embedding layer. The main local changes live
+around `skald/backend*.odin`, `skald_karl2d/`, the render/text/image
+facades, input capture helpers, and `examples/50_karl2d_overlay`.
+
+When merging from upstream, prefer a normal merge over rebasing so local
+integration history stays visible. If conflicts touch rendering, text
+measurement, images, or input gating, keep the fork's backend-aware
+helpers such as `ctx_measure_text`, `measure_text_ctx`, `draw_text_ctx`,
+and `widget_hovered`, while folding in upstream's behavioral fixes and
+new parameters. After resolving, run:
+
+```bash
+odin test ./skald -collection:gui=.
+./build.sh 01_hello
+./build.sh 50_karl2d_overlay
+```
+
 ## Highlights
 
 - **Elm architecture** — `init` / `update` / `view` with a pure `Msg` union.

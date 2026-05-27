@@ -12,7 +12,7 @@
 
 ## Execution Progress
 
-Updated: 2026-05-27 after Task 2 spec-compliance review.
+Updated: 2026-05-27 after Task 4 automated verification.
 
 - Baseline before implementation passed:
   - `odin test ./skald -collection:gui=. -define:SKALD_RUNA=false`
@@ -25,15 +25,26 @@ Updated: 2026-05-27 after Task 2 spec-compliance review.
 - Task 2 implementation complete and committed:
   - Commit `acbfacd` — `feat: split karl2d embedded frame lifecycle`
   - Spec review: passed.
-  - Code-quality review: not yet run. This is the next required step before Task 3.
-- Current worktree at the time of this note was clean before editing this progress section.
+  - Code-quality review: passed after lifecycle cleanup fix.
+  - Follow-up commit `0ee2eb9` — `fix: harden karl2d frame lifecycle cleanup`
+- Task 3 documentation updates complete and committed:
+  - Commit `9bd3861` — `docs: document karl2d split frame loop`
+  - Spec review: passed.
+  - Code-quality review: passed after README event-pump ownership fix.
+  - Follow-up commit `20f1c5f` — `docs: clarify embedded event pump ownership`
+- Task 4 automated verification complete:
+  - `odin test ./skald -collection:gui=. -define:SKALD_RUNA=false` passed with 20 tests.
+  - `odin check ./skald_karl2d -collection:gui=. -no-entry-point` passed.
+  - `./build.sh 50_karl2d_overlay` passed.
+  - `git diff --check` passed.
+  - Bounded launch `timeout 3s ./build/50_karl2d_overlay` initialized and stayed alive until timeout.
+  - Interactive WASD/text-focus smoke still needs a human desktop session.
+- Current worktree at the time of this note was ready for final review after committing this progress update.
 
 Resume from here:
 
-1. Run Task 2 code-quality review for `489e709..acbfacd`.
-2. If no Critical or Important issues, mark Task 2 quality review complete.
-3. Start Task 3 documentation updates.
-4. Continue with Task 3 reviews and Task 4 final verification.
+1. Run final whole-implementation code review.
+2. Address any Critical or Important findings.
 
 ---
 
@@ -422,7 +433,7 @@ git commit -m "feat: split karl2d embedded frame lifecycle"
 - Modify: `docs/architecture.md`
 - Modify: `docs/examples.md`
 
-- [ ] **Step 1: Update README embedded backend bullet**
+- [x] **Step 1: Update README embedded backend bullet**
 
 In `README.md`, replace the embedded backend bullet at lines 63-66 with:
 
@@ -433,7 +444,7 @@ In `README.md`, replace the embedded backend bullet at lines 63-66 with:
   before game update, and `end_frame` draws Skald over the game scene.
 ```
 
-- [ ] **Step 2: Update architecture backend-services section**
+- [x] **Step 2: Update architecture backend-services section**
 
 In `docs/architecture.md`, replace lines 260-263 with:
 
@@ -446,7 +457,7 @@ to render the UI overlay and drain Skald messages. `skald_karl2d.frame`
 remains the all-in-one convenience wrapper for non-game overlay use.
 ```
 
-- [ ] **Step 3: Update examples table**
+- [x] **Step 3: Update examples table**
 
 In `docs/examples.md`, replace the `50_karl2d_overlay` row with:
 
@@ -454,7 +465,7 @@ In `docs/examples.md`, replace the `50_karl2d_overlay` row with:
 | `50_karl2d_overlay` | Karl2D game loop with a Skald overlay. Shows split `begin_frame`/`end_frame`, keyboard pass-through, UI capture, a button, and text input. |
 ```
 
-- [ ] **Step 4: Run documentation-adjacent compile checks**
+- [x] **Step 4: Run documentation-adjacent compile checks**
 
 Run:
 
@@ -465,7 +476,7 @@ odin check ./skald_karl2d -collection:gui=. -no-entry-point
 
 Expected: both commands pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add README.md docs/architecture.md docs/examples.md
@@ -479,7 +490,7 @@ git commit -m "docs: document karl2d split frame loop"
 **Files:**
 - No new files.
 
-- [ ] **Step 1: Run Skald core tests**
+- [x] **Step 1: Run Skald core tests**
 
 Run:
 
@@ -489,7 +500,7 @@ odin test ./skald -collection:gui=. -define:SKALD_RUNA=false
 
 Expected: PASS.
 
-- [ ] **Step 2: Run Karl2D backend compile check**
+- [x] **Step 2: Run Karl2D backend compile check**
 
 Run:
 
@@ -499,7 +510,7 @@ odin check ./skald_karl2d -collection:gui=. -no-entry-point
 
 Expected: PASS.
 
-- [ ] **Step 3: Build split-loop overlay example**
+- [x] **Step 3: Build split-loop overlay example**
 
 Run:
 
@@ -509,7 +520,7 @@ Run:
 
 Expected: PASS and output binary at `build/50_karl2d_overlay`.
 
-- [ ] **Step 4: Inspect final diff**
+- [x] **Step 4: Inspect final diff**
 
 Run:
 
@@ -521,6 +532,10 @@ git status --short
 Expected: the diff includes only the planned files, and `git status --short` is empty.
 
 - [ ] **Step 5: Manual smoke test in desktop session**
+
+Automated bounded launch was run with `timeout 3s ./build/50_karl2d_overlay`.
+It initialized and stayed alive until timeout. The interactive WASD/text-focus
+checks still need a human desktop session.
 
 Run:
 

@@ -45,13 +45,22 @@ input_capture_from_frame :: proc(input: Input, frame: Capture_Frame_State) -> In
 capture_frame_from_widgets :: proc(widgets: ^Widget_Store) -> Capture_Frame_State {
 	if widgets == nil {return {}}
 
-	pointer_regions := make([dynamic]Rect, 0, len(widgets.states), context.temp_allocator)
+	pointer_regions := make(
+		[dynamic]Rect,
+		0,
+		len(widgets.states) + len(widgets.overlay_rects),
+		context.temp_allocator,
+	)
 	press_owned := false
 	for _, st in widgets.states {
 		if st.last_frame != widgets.frame {continue}
 		if st.last_rect.w <= 0 || st.last_rect.h <= 0 {continue}
 		append(&pointer_regions, st.last_rect)
 		press_owned = press_owned || st.pressed || st.mouse_selecting
+	}
+	for r in widgets.overlay_rects {
+		if r.w <= 0 || r.h <= 0 {continue}
+		append(&pointer_regions, r)
 	}
 
 	scroll_regions := make([dynamic]Rect, 0, len(widgets.scroll_rects), context.temp_allocator)
@@ -79,13 +88,22 @@ capture_frame_from_previous_widgets :: proc(
 ) -> Capture_Frame_State {
 	if widgets == nil {return {}}
 
-	pointer_regions := make([dynamic]Rect, 0, len(widgets.states), context.temp_allocator)
+	pointer_regions := make(
+		[dynamic]Rect,
+		0,
+		len(widgets.states) + len(widgets.overlay_rects_prev),
+		context.temp_allocator,
+	)
 	press_owned := false
 	for _, st in widgets.states {
 		if st.last_frame + 1 != widgets.frame {continue}
 		if st.last_rect.w <= 0 || st.last_rect.h <= 0 {continue}
 		append(&pointer_regions, st.last_rect)
 		press_owned = press_owned || st.pressed || st.mouse_selecting
+	}
+	for r in widgets.overlay_rects_prev {
+		if r.w <= 0 || r.h <= 0 {continue}
+		append(&pointer_regions, r)
 	}
 
 	scroll_regions := make([dynamic]Rect, 0, len(widgets.scroll_rects_prev), context.temp_allocator)

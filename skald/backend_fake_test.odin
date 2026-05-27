@@ -431,6 +431,39 @@ capture_mouse_when_pointer_over_widget :: proc(t: ^testing.T) {
 }
 
 @(test)
+capture_mouse_when_pointer_over_current_overlay_rect :: proc(t: ^testing.T) {
+	ws: Widget_Store
+	widget_store_init(&ws)
+	defer widget_store_destroy(&ws)
+
+	append(&ws.overlay_rects, Rect{x = 10, y = 10, w = 80, h = 20})
+
+	input := Input{mouse_pos = {12, 16}}
+	frame := capture_frame_from_widgets(&ws)
+	capture := input_capture_from_frame(input, frame)
+
+	testing.expect_value(t, capture.pointer_over_ui, true)
+	testing.expect_value(t, capture.mouse, true)
+}
+
+@(test)
+capture_mouse_when_pointer_over_previous_overlay_rect :: proc(t: ^testing.T) {
+	ws: Widget_Store
+	widget_store_init(&ws)
+	defer widget_store_destroy(&ws)
+
+	append(&ws.overlay_rects, Rect{x = 10, y = 10, w = 80, h = 20})
+	widget_store_frame_reset(&ws)
+
+	input := Input{mouse_pos = {12, 16}}
+	frame := capture_frame_from_previous_widgets(&ws, false)
+	capture := input_capture_from_frame(input, frame)
+
+	testing.expect_value(t, capture.pointer_over_ui, true)
+	testing.expect_value(t, capture.mouse, true)
+}
+
+@(test)
 capture_keyboard_when_text_focused :: proc(t: ^testing.T) {
 	capture := input_capture_from_frame(Input{}, Capture_Frame_State{wants_text_input = true})
 

@@ -1,8 +1,8 @@
 package skald_karl2d
 
+import k2 "../karl2d"
+import skald "../skald"
 import "core:strings"
-import k2 "gui:karl2d"
-import skald "gui:skald"
 
 k2_load_font :: proc(state: rawptr, name: string, data: []byte) -> skald.Font {
 	if len(data) == 0 {return 0}

@@ -1,7 +1,7 @@
 package skald_karl2d
 
-import k2 "gui:karl2d"
-import skald "gui:skald"
+import k2 "../karl2d"
+import skald "../skald"
 
 Context :: struct($State, $Msg: typeid) {
 	app:           skald.App(State, Msg),

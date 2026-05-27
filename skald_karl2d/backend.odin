@@ -1,8 +1,8 @@
 package skald_karl2d
 
+import k2 "../karl2d"
+import skald "../skald"
 import "core:time"
-import k2 "gui:karl2d"
-import skald "gui:skald"
 
 Backend_State :: struct {
 	input:        skald.Input,

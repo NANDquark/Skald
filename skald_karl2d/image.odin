@@ -1,8 +1,8 @@
 package skald_karl2d
 
+import k2 "../karl2d"
+import skald "../skald"
 import "core:strings"
-import k2 "gui:karl2d"
-import skald "gui:skald"
 
 Image_Entry :: struct {
 	key:     string,

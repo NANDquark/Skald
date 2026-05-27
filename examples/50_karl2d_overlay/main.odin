@@ -1,10 +1,10 @@
 package karl2d_overlay
 
+import k2 "../../karl2d"
+import "../../skald"
+import skald_k2 "../../skald_karl2d"
 import "core:fmt"
 import "core:strings"
-import k2 "gui:karl2d"
-import "gui:skald"
-import skald_k2 "gui:skald_karl2d"
 
 State :: struct {
 	clicks: int,

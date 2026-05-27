@@ -1,7 +1,7 @@
 package skald_karl2d
 
-import k2 "gui:karl2d"
-import skald "gui:skald"
+import k2 "../karl2d"
+import skald "../skald"
 
 key_pairs :: [?]struct {
 	k2_key:    k2.Keyboard_Key,

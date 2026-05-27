@@ -1,0 +1,4 @@
+[submodule "karl2d"]
+	path = karl2d
+	url = git@github.com:karl-zylinski/karl2d.git
+	branch = master

@@ -61,8 +61,8 @@ odin test ./skald -collection:gui=.
 - **GPU rendering** — pure-Odin Vulkan 1.3 backend (`vendor:vulkan`), one
   pipeline for rects + text + images.
 - **Embeddable backend path** — Skald can be hosted by Karl2D as an
-  overlay UI layer. The host game owns the window, simulation, game
-  rendering, and present call; `begin_frame` exposes UI input capture
+  overlay UI layer. The host game owns the window, event pump, simulation,
+  game rendering, and present call; `begin_frame` exposes UI input capture
   before game update, and `end_frame` draws Skald over the game scene.
 - **Two text backends** — the pure-Odin `runa` engine ships vendored
   at `skald/third_party/runa/` and is the default since 1.0: full

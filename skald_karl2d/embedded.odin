@@ -42,6 +42,8 @@ init :: proc(ctx: ^Context($State, $Msg), app: skald.App(State, Msg)) -> bool {
 }
 
 shutdown :: proc(ctx: ^Context($State, $Msg)) {
+	assert(!ctx.frame_active, "skald_karl2d.shutdown called while a frame is active")
+
 	if ctx.runtime_ready {
 		skald.embedded_runtime_destroy(&ctx.runtime)
 		ctx.runtime_ready = false
@@ -89,6 +91,10 @@ begin_frame :: proc(ctx: ^Context($State, $Msg)) {
 
 end_frame :: proc(ctx: ^Context($State, $Msg)) {
 	assert(ctx.frame_active, "skald_karl2d.end_frame called before begin_frame")
+	defer {
+		ctx.frame_active = false
+		free_all(context.temp_allocator)
+	}
 
 	sz := window_size(ctx.backend.state)
 	size := [2]f32{f32(sz.x), f32(sz.y)}
@@ -120,8 +126,6 @@ end_frame :: proc(ctx: ^Context($State, $Msg)) {
 	)
 
 	ctx.state = drain_messages(ctx)
-	ctx.frame_active = false
-	free_all(context.temp_allocator)
 }
 
 drain_messages :: proc(ctx: ^Context($State, $Msg)) -> State {

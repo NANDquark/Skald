@@ -12,7 +12,7 @@
 
 ## Execution Progress
 
-Updated: 2026-05-27 after Task 4 automated verification.
+Updated: 2026-05-27 after final-review overlay-capture fix and automated verification.
 
 - Baseline before implementation passed:
   - `odin test ./skald -collection:gui=. -define:SKALD_RUNA=false`
@@ -33,13 +33,16 @@ Updated: 2026-05-27 after Task 4 automated verification.
   - Code-quality review: passed after README event-pump ownership fix.
   - Follow-up commit `20f1c5f` — `docs: clarify embedded event pump ownership`
 - Task 4 automated verification complete:
-  - `odin test ./skald -collection:gui=. -define:SKALD_RUNA=false` passed with 20 tests.
+  - Final review found overlay-only rects were missing from current and previous capture helpers.
+  - Commit `91d43dc` — `fix: include overlays in input capture`
+  - Focused review of the overlay-capture fix passed.
+  - `odin test ./skald -collection:gui=. -define:SKALD_RUNA=false` passed with 22 tests.
   - `odin check ./skald_karl2d -collection:gui=. -no-entry-point` passed.
   - `./build.sh 50_karl2d_overlay` passed.
   - `git diff --check` passed.
   - Bounded launch `timeout 3s ./build/50_karl2d_overlay` initialized and stayed alive until timeout.
   - Interactive WASD/text-focus smoke still needs a human desktop session.
-- Current worktree at the time of this note was ready for final review after committing this progress update.
+- Current worktree at the time of this note was ready for the final whole-range review.
 
 Resume from here:
 

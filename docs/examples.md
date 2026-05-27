@@ -85,7 +85,7 @@ meant to exercise — the one-liners below are a jumping-off point.
 
 | Example | What it teaches |
 |---------|-----------------|
-| `50_karl2d_overlay` | Karl2D game loop with a Skald overlay. Shows keyboard pass-through, UI capture, a button, and text input. |
+| `50_karl2d_overlay` | Karl2D game loop with a Skald overlay. Shows split `begin_frame`/`end_frame`, keyboard pass-through, UI capture, a button, and text input. |
 
 ### Theming
 

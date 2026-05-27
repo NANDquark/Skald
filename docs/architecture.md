@@ -258,9 +258,11 @@ Skald's UI core can render through backend services instead of talking
 directly to a windowing or graphics API. The current desktop runtime wraps
 the existing SDL3/Vulkan renderer through a compatibility backend. The
 Karl2D adapter implements the same service shape for embedded overlays:
-Karl2D owns the window, event pump, game draw, and present call; Skald
-builds and renders a UI tree inside that loop and reports input capture
-flags so uncaptured input remains available to game systems.
+Karl2D owns the window, event pump, game update, game draw, and present call.
+Game loops call `skald_karl2d.begin_frame` before simulation to snapshot
+input and read capture, then call `skald_karl2d.end_frame` after game drawing
+to render the UI overlay and drain Skald messages. `skald_karl2d.frame`
+remains the all-in-one convenience wrapper for non-game overlay use.
 
 ## Further reading
 

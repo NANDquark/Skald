@@ -476,6 +476,69 @@ outside_press_blurs_focused_button_before_capture :: proc(t: ^testing.T) {
 }
 
 @(test)
+previous_frame_capture_survives_widget_store_reset :: proc(t: ^testing.T) {
+	ws: Widget_Store
+	widget_store_init(&ws)
+	defer widget_store_destroy(&ws)
+
+	id := Widget_ID(1)
+	ws.focused_id = id
+	ws.wants_text_input = true
+	ws.states[id] = Widget_State {
+		kind       = .Text_Input,
+		last_rect  = {x = 10, y = 10, w = 80, h = 24},
+		last_frame = ws.frame,
+	}
+	append(&ws.scroll_rects, Scroll_Rect{id = id, rect = {x = 10, y = 10, w = 80, h = 24}})
+	ws.modal_rect = {x = 4, y = 4, w = 120, h = 80}
+
+	input := Input{mouse_pos = {12, 16}}
+	prev_wants_text_input := ws.wants_text_input
+
+	widget_store_frame_reset(&ws)
+	widget_store_blur_on_outside_press(&ws, input)
+
+	frame := capture_frame_from_previous_widgets(&ws, prev_wants_text_input)
+	capture := input_capture_from_frame(input, frame)
+
+	testing.expect_value(t, capture.pointer_over_ui, true)
+	testing.expect_value(t, capture.mouse, true)
+	testing.expect_value(t, capture.keyboard, true)
+	testing.expect_value(t, capture.text, true)
+	testing.expect_value(t, capture.wheel, true)
+}
+
+@(test)
+previous_frame_capture_respects_outside_press_blur :: proc(t: ^testing.T) {
+	ws: Widget_Store
+	widget_store_init(&ws)
+	defer widget_store_destroy(&ws)
+
+	id := Widget_ID(1)
+	ws.focused_id = id
+	ws.wants_text_input = true
+	ws.states[id] = Widget_State {
+		kind       = .Text_Input,
+		last_rect  = {x = 10, y = 10, w = 80, h = 24},
+		last_frame = ws.frame,
+	}
+
+	input := Input{mouse_pos = {200, 200}}
+	input.mouse_pressed[.Left] = true
+	prev_wants_text_input := ws.wants_text_input
+
+	widget_store_frame_reset(&ws)
+	widget_store_blur_on_outside_press(&ws, input)
+
+	frame := capture_frame_from_previous_widgets(&ws, prev_wants_text_input)
+	capture := input_capture_from_frame(input, frame)
+
+	testing.expect_value(t, ws.focused_id, Widget_ID(0))
+	testing.expect_value(t, capture.keyboard, false)
+	testing.expect_value(t, capture.text, false)
+}
+
+@(test)
 press_inside_overlay_keeps_focused_owner :: proc(t: ^testing.T) {
 	ws: Widget_Store
 	widget_store_init(&ws)

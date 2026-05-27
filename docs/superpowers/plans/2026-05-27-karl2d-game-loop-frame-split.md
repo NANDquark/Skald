@@ -10,6 +10,33 @@
 
 ---
 
+## Execution Progress
+
+Updated: 2026-05-27 after Task 2 spec-compliance review.
+
+- Baseline before implementation passed:
+  - `odin test ./skald -collection:gui=. -define:SKALD_RUNA=false`
+  - `odin check ./skald_karl2d -collection:gui=. -no-entry-point`
+  - `./build.sh 50_karl2d_overlay`
+- Task 1 complete and committed:
+  - Commit `489e709` — `feat: add previous-frame input capture helper`
+  - Spec review: passed.
+  - Code-quality review: passed with only minor, non-blocking test-isolation suggestions.
+- Task 2 implementation complete and committed:
+  - Commit `acbfacd` — `feat: split karl2d embedded frame lifecycle`
+  - Spec review: passed.
+  - Code-quality review: not yet run. This is the next required step before Task 3.
+- Current worktree at the time of this note was clean before editing this progress section.
+
+Resume from here:
+
+1. Run Task 2 code-quality review for `489e709..acbfacd`.
+2. If no Critical or Important issues, mark Task 2 quality review complete.
+3. Start Task 3 documentation updates.
+4. Continue with Task 3 reviews and Task 4 final verification.
+
+---
+
 ## File Structure
 
 - Modify `skald/input_capture.odin`: add a helper for capture derived from previous-frame widget geometry after `widget_store_frame_reset`.
@@ -29,7 +56,7 @@
 - Modify: `skald/input_capture.odin`
 - Modify: `skald/backend_fake_test.odin`
 
-- [ ] **Step 1: Write failing tests for previous-frame capture**
+- [x] **Step 1: Write failing tests for previous-frame capture**
 
 Append these tests to `skald/backend_fake_test.odin` after `outside_press_blurs_focused_button_before_capture`:
 
@@ -98,7 +125,7 @@ previous_frame_capture_respects_outside_press_blur :: proc(t: ^testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run:
 
@@ -108,7 +135,7 @@ odin test ./skald -collection:gui=. -define:SKALD_RUNA=false
 
 Expected: FAIL with an undefined identifier error for `capture_frame_from_previous_widgets`.
 
-- [ ] **Step 3: Implement previous-frame capture helper**
+- [x] **Step 3: Implement previous-frame capture helper**
 
 Add this proc to `skald/input_capture.odin` after `capture_frame_from_widgets`:
 
@@ -150,7 +177,7 @@ capture_frame_from_previous_widgets :: proc(
 }
 ```
 
-- [ ] **Step 4: Run tests to verify pass**
+- [x] **Step 4: Run tests to verify pass**
 
 Run:
 
@@ -160,7 +187,7 @@ odin test ./skald -collection:gui=. -define:SKALD_RUNA=false
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skald/input_capture.odin skald/backend_fake_test.odin
@@ -175,7 +202,7 @@ git commit -m "feat: add previous-frame input capture helper"
 - Modify: `skald_karl2d/backend.odin`
 - Modify: `skald_karl2d/embedded.odin`
 
-- [ ] **Step 1: Write failing split-API usage in the overlay example**
+- [x] **Step 1: Write failing split-API usage in the overlay example**
 
 Temporarily update `examples/50_karl2d_overlay/main.odin` loop to call the new API. Replace lines 82-102 with:
 
@@ -205,7 +232,7 @@ Temporarily update `examples/50_karl2d_overlay/main.odin` loop to call the new A
 	}
 ```
 
-- [ ] **Step 2: Run build to verify failure**
+- [x] **Step 2: Run build to verify failure**
 
 Run:
 
@@ -215,7 +242,7 @@ Run:
 
 Expected: FAIL with undefined identifiers `begin_frame` and `end_frame`.
 
-- [ ] **Step 3: Remove stale backend capture fields**
+- [x] **Step 3: Remove stale backend capture fields**
 
 In `skald_karl2d/backend.odin`, replace the `Backend_State` header with:
 
@@ -230,7 +257,7 @@ Backend_State :: struct {
 }
 ```
 
-- [ ] **Step 4: Add lifecycle state and split frame procs**
+- [x] **Step 4: Add lifecycle state and split frame procs**
 
 In `skald_karl2d/embedded.odin`, add `frame_active` to `Context`:
 
@@ -347,7 +374,7 @@ input :: proc(ctx: ^Context($State, $Msg)) -> skald.Input {
 }
 ```
 
-- [ ] **Step 5: Run compile checks**
+- [x] **Step 5: Run compile checks**
 
 Run:
 
@@ -358,7 +385,7 @@ odin check ./skald_karl2d -collection:gui=. -no-entry-point
 
 Expected: both commands pass.
 
-- [ ] **Step 6: Verify all-in-one compatibility still compiles**
+- [x] **Step 6: Verify all-in-one compatibility still compiles**
 
 Temporarily change the example loop back to the old `skald_k2.frame(&ui)` style. The compatibility snippet must compile:
 
@@ -379,7 +406,7 @@ Run:
 
 Expected: PASS. Restore the split-loop example before committing.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add skald_karl2d/backend.odin skald_karl2d/embedded.odin examples/50_karl2d_overlay/main.odin

@@ -58,6 +58,7 @@ frame :: proc(ctx: ^Context($State, $Msg)) {
 
 	translate_input(&ctx.backend_state)
 	skald.widget_store_frame_reset(&ctx.widgets)
+	skald.widget_store_blur_on_outside_press(&ctx.widgets, ctx.backend_state.input)
 	clear(&ctx.overlays)
 
 	sz := window_size(ctx.backend.state)

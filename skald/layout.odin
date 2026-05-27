@@ -662,8 +662,8 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 			display_col = vv.color_placeholder
 		}
 
-		_, lh := measure_text_ctx(r, display, vv.font_size)
-		ascent := text_ascent_ctx(r, vv.font_size, 0)
+		_, lh := measure_text_ctx(r, display, vv.font_size, vv.font)
+		ascent := text_ascent_ctx(r, vv.font_size, vv.font)
 
 		if !vv.multiline {
 			// Single-line: vertically center. measure_text returns the
@@ -682,13 +682,13 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 				hi = clamp(hi, 0, len(vv.text))
 				x_lo: f32 = 0
 				x_hi: f32 = 0
-				if lo > 0 {x_lo, _ = measure_text_ctx(r, vv.text[:lo], vv.font_size)}
-				if hi > 0 {x_hi, _ = measure_text_ctx(r, vv.text[:hi], vv.font_size)}
+				if lo > 0 {x_lo, _ = measure_text_ctx(r, vv.text[:lo], vv.font_size, vv.font)}
+				if hi > 0 {x_hi, _ = measure_text_ctx(r, vv.text[:hi], vv.font_size, vv.font)}
 				draw_rect(r, {ix + x_lo, ty, x_hi - x_lo, lh}, vv.color_selection, 0)
 			}
 
 			if len(display) > 0 {
-				draw_text_ctx(r, display, ix, ty + ascent, display_col, vv.font_size, 0)
+				draw_text_ctx(r, display, ix, ty + ascent, display_col, vv.font_size, vv.font)
 			}
 
 			// Caret: measure the prefix up to cursor_pos to locate its x.
@@ -697,7 +697,7 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 			if vv.focused {
 				cw: f32 = 0
 				if vv.cursor_pos > 0 && vv.cursor_pos <= len(vv.text) {
-					cw, _ = measure_text_ctx(r, vv.text[:vv.cursor_pos], vv.font_size)
+					cw, _ = measure_text_ctx(r, vv.text[:vv.cursor_pos], vv.font_size, vv.font)
 				}
 				caret_w: f32 = 1.5
 				draw_rect(r, {ix + cw, ty, caret_w, lh}, vv.color_caret, 0)
@@ -713,11 +713,11 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 			if vv.show_clear {
 				glyph_col := vv.color_placeholder
 				if vv.clear_hovered {glyph_col = vv.color_fg}
-				gw, glh := measure_text_ctx(r, "×", vv.font_size)
+				gw, glh := measure_text_ctx(r, "×", vv.font_size, vv.font)
 				gx := ix + iw + (clear_w - gw) / 2
 				gy := iy + (ih - glh) / 2
-				ascent := text_ascent_ctx(r, vv.font_size, 0)
-				draw_text_ctx(r, "×", gx, gy + ascent, glyph_col, vv.font_size, 0)
+				ascent := text_ascent_ctx(r, vv.font_size, vv.font)
+				draw_text_ctx(r, "×", gx, gy + ascent, glyph_col, vv.font_size, vv.font)
 			}
 		} else {
 			// Multiline: top-aligned, one glyph run per visual line (the
@@ -744,7 +744,7 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 				// Empty buffer: show placeholder (if any) and draw the
 				// caret at the origin so focus is still visible.
 				if len(display) > 0 && display_col.a != 0 {
-					draw_text_ctx(r, display, ix, iy + ascent, display_col, vv.font_size, 0)
+					draw_text_ctx(r, display, ix, iy + ascent, display_col, vv.font_size, vv.font)
 				}
 				if vv.focused {
 					draw_rect(r, {ix, iy, 1.5, lh}, vv.color_caret, 0)
@@ -767,8 +767,8 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 						hi := min(sel_hi, j)
 						x_lo: f32 = 0
 						x_hi: f32 = 0
-						if lo > i {x_lo, _ = measure_text_ctx(r, vv.text[i:lo], vv.font_size)}
-						if hi > i {x_hi, _ = measure_text_ctx(r, vv.text[i:hi], vv.font_size)}
+						if lo > i {x_lo, _ = measure_text_ctx(r, vv.text[i:lo], vv.font_size, vv.font)}
+						if hi > i {x_hi, _ = measure_text_ctx(r, vv.text[i:hi], vv.font_size, vv.font)}
 						if line_ends_hard && sel_hi > j {
 							x_hi += vv.font_size * 0.4
 						}
@@ -793,7 +793,7 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 							line_y + ascent,
 							display_col,
 							vv.font_size,
-							0,
+							vv.font,
 						)
 					}
 
@@ -814,7 +814,7 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 						if draw_here {
 							cw: f32 = 0
 							if vv.cursor_pos > i {
-								cw, _ = measure_text_ctx(r, vv.text[i:vv.cursor_pos], vv.font_size)
+								cw, _ = measure_text_ctx(r, vv.text[i:vv.cursor_pos], vv.font_size, vv.font)
 							}
 							draw_rect(r, {ix + cw, line_y, 1.5, lh}, vv.color_caret, 0)
 						}

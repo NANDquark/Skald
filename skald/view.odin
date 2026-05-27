@@ -373,6 +373,7 @@ View_Text_Input :: struct {
 	radius:            f32,
 	padding:           [2]f32,
 	font_size:         f32,
+	font:              Font,
 	width:             f32,
 	height:            f32,
 	focused:           bool,
@@ -759,6 +760,13 @@ View_Canvas :: struct {
 	draw:   proc(user: rawptr, painter: Canvas_Painter),
 	size:   [2]f32,
 	min:    [2]f32,
+	// cursor is the OS pointer shape Skald applies while the mouse
+	// is over the canvas. `.Default` (the zero value) leaves the
+	// cursor unchanged. Paint apps pick a shape per active tool
+	// (`.Crosshair` for brush, `.Move` for pan, `.Not_Allowed` for
+	// disabled targets, etc.) — the field is per-frame, so the
+	// builder just reads from app state in `view`.
+	cursor: Cursor_Shape,
 }
 
 // Canvas_Painter is the handle `View_Canvas` draw callbacks receive.
@@ -946,7 +954,7 @@ text_selectable :: proc(
 	if st.cursor_pos       > n { st.cursor_pos       = n }
 	if st.selection_anchor > n { st.selection_anchor = n }
 
-	hovered := rect_hovered(ctx, st.last_rect)
+	hovered := widget_hovered(ctx, wid)
 
 	// Mouse press inside our rect → start selection at click position.
 	// Click streak (1/2/3+) drives the action: single = caret, double =
@@ -1307,7 +1315,7 @@ rich_text_selectable :: proc(
 	resolved_size := size if size > 0 else 14
 	lines := ctx_wrap_rich_text(ctx, copied, resolved_size, font, max_width)
 
-	hovered := rect_hovered(ctx, st.last_rect)
+	hovered := widget_hovered(ctx, wid)
 
 	if hovered && ctx.input.mouse_pressed[.Left] && ctx.renderer != nil {
 		byte_pos := rich_text_hit_test(ctx.renderer, copied, lines, resolved_size, font,
@@ -1428,7 +1436,7 @@ rich_text_selectable_links :: proc(
 	resolved_size := size if size > 0 else 14
 	lines := ctx_wrap_rich_text(ctx, copied, resolved_size, font, max_width)
 
-	hovered := rect_hovered(ctx, st.last_rect)
+	hovered := widget_hovered(ctx, wid)
 
 	// Drag threshold for press-vs-drag-vs-link detection. Manhattan
 	// distance — well below where a deliberate drag-to-select would
@@ -2235,7 +2243,7 @@ chip :: proc(
 	// than a chip row).
 	close_id := widget_resolve_id(ctx, id)
 	close_st := widget_get(ctx, close_id, .Click_Zone)
-	close_hot := rect_contains_point(close_st.last_rect, ctx.input.mouse_pos)
+	close_hot := widget_hovered(ctx, close_id)
 	if ctx.input.mouse_released[.Left] && close_hot {
 		send(ctx, on_close(label))
 	}
@@ -2401,7 +2409,7 @@ _rating_impl :: proc(
 		slot_id := widget_make_sub_id(base, u64(i + 1))
 		st := widget_get(ctx, slot_id, .Click_Zone)
 		if ctx.input.mouse_pressed[.Left] &&
-		   rect_hovered(ctx, st.last_rect) {
+		   widget_hovered(ctx, slot_id) {
 			// Clicking the currently-filled last star clears; any
 			// other click sets to that slot (1-based).
 			next := i + 1
@@ -3022,7 +3030,7 @@ collapsible :: proc(
 	widget_make_focusable(ctx, id)
 	st := widget_get(ctx, id, .Click_Zone)
 	focused := widget_has_focus(ctx, id)
-	hovered := rect_hovered(ctx, st.last_rect)
+	hovered := widget_hovered(ctx, id)
 
 	toggled := false
 	if ctx.input.mouse_pressed[.Left] && hovered {
@@ -3133,7 +3141,7 @@ accordion :: proc(
 		widget_make_focusable(ctx, zone_id)
 		st := widget_get(ctx, zone_id, .Click_Zone)
 		focused := widget_has_focus(ctx, zone_id)
-		hovered := rect_hovered(ctx, st.last_rect)
+		hovered := widget_hovered(ctx, zone_id)
 
 		toggled := false
 		if ctx.input.mouse_pressed[.Left] && hovered {
@@ -3374,11 +3382,21 @@ canvas :: proc(
 	height: f32 = 0,
 	min_w:  f32 = 0,
 	min_h:  f32 = 0,
+	cursor: Cursor_Shape = .Default,
 ) -> View {
 	rid := widget_resolve_id(ctx, id)
 	// Stamp kind so next frame can retrieve last_rect via widget_last_rect.
 	st := widget_get(ctx, rid, .Canvas)
 	widget_set(ctx, rid, st)
+
+	// Hover → cursor switch: when the mouse is inside this canvas's
+	// last-frame rect AND a non-default cursor was requested, ask the
+	// run loop to apply it for this frame. `widget_hovered` is the
+	// z-aware variant so popovers / dialogs above the canvas correctly
+	// suppress the cursor change.
+	if cursor != .Default && widget_hovered(ctx, rid) {
+		cursor_request(ctx, cursor)
+	}
 
 	// Per-monomorphization pack: the non-polymorphic View node needs a
 	// rawptr + rawptr-taking dispatcher, but the callback is typed
@@ -3400,11 +3418,12 @@ canvas :: proc(
 	}
 
 	return View_Canvas{
-		id   = rid,
-		user = rawptr(pack),
-		draw = dispatch,
-		size = {width, height},
-		min  = {min_w, min_h},
+		id     = rid,
+		user   = rawptr(pack),
+		draw   = dispatch,
+		size   = {width, height},
+		min    = {min_w, min_h},
+		cursor = cursor,
 	}
 }
 
@@ -3610,7 +3629,7 @@ button :: proc(
 	st := widget_get(ctx, id, .Button)
 	focused := !disabled && widget_has_focus(ctx, id)
 
-	hovered := !disabled && rect_hovered(ctx, st.last_rect)
+	hovered := !disabled && widget_hovered(ctx, id)
 
 	if !disabled {
 		// Press/release state machine:
@@ -3750,6 +3769,7 @@ _text_input_impl :: proc(
 	width:       f32    = 0,
 	height:      f32    = 0,
 	font_size:   f32    = 0,
+	font:        Font   = 0,
 	padding:     [2]f32 = {0, 0},
 	bg:          Color  = {},
 	fg:          Color  = {},
@@ -3868,7 +3888,7 @@ _text_input_impl :: proc(
 	// Everything past the trigger press happens against `st.last_rect`,
 	// so a field that mounted this frame still takes its first click —
 	// the rect is zero, hit-test fails, we fall through.
-	hovered := !disabled && rect_hovered(ctx, st.last_rect)
+	hovered := !disabled && widget_hovered(ctx, id)
 
 	// Search-mode embedded clear: reserve a column in the right padding
 	// for a `×` glyph. A press landing there empties the value outright
@@ -3914,10 +3934,11 @@ _text_input_impl :: proc(
 		rel_x: f32,
 		mouse_y, content_y0, line_h: f32,
 		multiline: bool,
+		font: Font,
 	) -> int {
 		if renderer == nil { return 0 }
 		if !multiline {
-			return byte_index_at_x(renderer, text, fs, 0, rel_x)
+			return byte_index_at_x(renderer, text, fs, font, rel_x)
 		}
 		ry := mouse_y - content_y0
 		line := int(ry / line_h)
@@ -3926,7 +3947,7 @@ _text_input_impl :: proc(
 		if last < 0 { return 0 }
 		if line > last { line = last }
 		vl := vls[line]
-		col_in_line := byte_index_at_x(renderer, text[vl.start:vl.end], fs, 0, rel_x)
+		col_in_line := byte_index_at_x(renderer, text[vl.start:vl.end], fs, font, rel_x)
 		return vl.start + col_in_line
 	}
 
@@ -3934,7 +3955,7 @@ _text_input_impl :: proc(
 	// motion agree. An empty string still returns the font's line height.
 	line_h: f32 = fs
 	if ctx.render != nil || ctx.renderer != nil {
-		_, line_h = ctx_measure_text(ctx, "Ag", fs)
+		_, line_h = ctx_measure_text(ctx, "Ag", fs, font)
 	}
 	// Multiline scrolls vertically against st.scroll_y. content_y0 is
 	// the y where the first line's glyphs land *after* scrolling — click
@@ -3963,7 +3984,7 @@ _text_input_impl :: proc(
 	if width <= 0 && st.last_rect.w == 0 && do_wrap {
 		widget_request_frame_at(ctx, 1)
 	}
-	visual_lines := build_visual_lines(ctx.renderer, new_value, fs, inner_w, do_wrap)
+	visual_lines := build_visual_lines(ctx.renderer, new_value, fs, inner_w, do_wrap, font)
 
 	// Password: compute a `•`-per-rune mask used for hit-testing and
 	// (later) rendering. The edit path stays on `new_value` (real bytes);
@@ -4048,7 +4069,7 @@ _text_input_impl :: proc(
 			focused = true
 			idx := resolve_click_idx(ctx.renderer, disp_text, visual_lines,
 				fs, click_rel_x,
-				ctx.input.mouse_pos.y, content_y0, line_h, multiline)
+				ctx.input.mouse_pos.y, content_y0, line_h, multiline, font)
 			if password { idx = mask_byte_to_real_byte(new_value, idx) }
 			clicks := ctx.input.mouse_click_count[.Left]
 			// Password mode: double-click would collapse to select-all
@@ -4101,7 +4122,7 @@ _text_input_impl :: proc(
 	if st.mouse_selecting && !sb_captured && ctx.input.mouse_buttons[.Left] && ctx.renderer != nil {
 		cursor = resolve_click_idx(ctx.renderer, disp_text, visual_lines,
 			fs, click_rel_x,
-			ctx.input.mouse_pos.y, content_y0, line_h, multiline)
+			ctx.input.mouse_pos.y, content_y0, line_h, multiline, font)
 		if password { cursor = mask_byte_to_real_byte(new_value, cursor) }
 	}
 	if ctx.input.mouse_released[.Left] {
@@ -4308,7 +4329,7 @@ _text_input_impl :: proc(
 		// rebuild — O(runes) with a measure_text per rune — and keeping
 		// one source of truth for lines is worth it.
 		if multiline && new_value != value {
-			visual_lines = build_visual_lines(ctx.renderer, new_value, fs, inner_w, do_wrap)
+			visual_lines = build_visual_lines(ctx.renderer, new_value, fs, inner_w, do_wrap, font)
 		}
 
 		// Home/End: multiline scopes to the current *visual* line (the
@@ -4343,7 +4364,7 @@ _text_input_impl :: proc(
 			cur_line := visual_line_of_byte(visual_lines, cursor)
 			cur_vl   := visual_lines[cur_line]
 			col_x, _ := ctx_measure_text(ctx,
-				new_value[cur_vl.start:cursor], fs)
+				new_value[cur_vl.start:cursor], fs, font)
 
 			target := cur_line
 			if .Up   in keys { target -= 1 }
@@ -4355,7 +4376,7 @@ _text_input_impl :: proc(
 			if target != cur_line {
 				vl := visual_lines[target]
 				col := byte_index_at_x(ctx.renderer,
-					new_value[vl.start:vl.end], fs, 0, col_x)
+					new_value[vl.start:vl.end], fs, font, col_x)
 				cursor = vl.start + col
 			} else if .Up in keys {
 				// At the first line with Up: match the native "snap to
@@ -4407,7 +4428,15 @@ _text_input_impl :: proc(
 	// when the mouse is over the widget (even if a different input owns
 	// focus); caret motion auto-scrolls to keep the caret onscreen so
 	// typing past the bottom edge follows the cursor down.
-	viewport_h := h - 2 * pad.y
+	// When a flex/Stretch parent sizes the field (`height == 0`), `h` is
+	// only the 6-line placeholder — the real on-screen height is
+	// st.last_rect.h. Use that for the scroll viewport (mirrors the width
+	// fallback above); keep `h` for the first frame before any rect exists.
+	// Without this, fill-mode editors scroll once content passes ~6 lines
+	// even with empty room below.
+	effective_h := h
+	if height <= 0 && st.last_rect.h > 0 { effective_h = st.last_rect.h }
+	viewport_h := effective_h - 2 * pad.y
 	content_h  := f32(len(visual_lines)) * line_h
 	if multiline {
 		max_off := content_h - viewport_h
@@ -4490,6 +4519,7 @@ _text_input_impl :: proc(
 		radius            = th.radius.sm,
 		padding           = pad,
 		font_size         = fs,
+		font              = font,
 		width             = width,
 		height            = h,
 		focused           = focused,
@@ -4564,6 +4594,7 @@ text_input_simple :: proc(
 	width:       f32    = 0,
 	height:      f32    = 0,
 	font_size:   f32    = 0,
+	font:        Font   = 0,
 	padding:     [2]f32 = {0, 0},
 	bg:          Color  = {},
 	fg:          Color  = {},
@@ -4585,6 +4616,7 @@ text_input_simple :: proc(
 		width         = width,
 		height        = height,
 		font_size     = font_size,
+		font          = font,
 		padding       = padding,
 		bg            = bg,
 		fg            = fg,
@@ -4619,6 +4651,7 @@ text_input_payload :: proc(
 	width:       f32    = 0,
 	height:      f32    = 0,
 	font_size:   f32    = 0,
+	font:        Font   = 0,
 	padding:     [2]f32 = {0, 0},
 	bg:          Color  = {},
 	fg:          Color  = {},
@@ -4640,6 +4673,7 @@ text_input_payload :: proc(
 		width         = width,
 		height        = height,
 		font_size     = font_size,
+		font          = font,
 		padding       = padding,
 		bg            = bg,
 		fg            = fg,
@@ -4945,7 +4979,7 @@ Visual_Line :: struct {
 // wrap fallback is skipped and we behave as if wrap were off.
 @(private)
 build_visual_lines :: proc(
-	r: ^Renderer, text: string, fs, inner_w: f32, wrap: bool,
+	r: ^Renderer, text: string, fs, inner_w: f32, wrap: bool, font: Font = 0,
 ) -> []Visual_Line {
 	out := make([dynamic]Visual_Line, 0, 16, context.temp_allocator)
 
@@ -4976,7 +5010,7 @@ build_visual_lines :: proc(
 					if rune_bytes <= 0 { rune_bytes = 1 }
 					next := j + rune_bytes
 					if next > le { next = le }
-					w, _ := measure_text(r, text[pos:next], fs)
+					w, _ := measure_text(r, text[pos:next], fs, font)
 					if w > inner_w && next > pos + 1 {
 						fits_all = false
 						break
@@ -5200,7 +5234,7 @@ _checkbox_impl :: proc(
 	if !disabled { widget_make_focusable(ctx, id) }
 	st := widget_get(ctx, id, .Checkbox)
 	focused := !disabled && widget_has_focus(ctx, id)
-	hovered := !disabled && rect_hovered(ctx, st.last_rect)
+	hovered := !disabled && widget_hovered(ctx, id)
 
 	if !disabled {
 		if ctx.input.mouse_pressed[.Left] && hovered {
@@ -5340,7 +5374,7 @@ _radio_impl :: proc(
 	if !disabled { widget_make_focusable(ctx, id) }
 	st := widget_get(ctx, id, .Radio)
 	focused := !disabled && widget_has_focus(ctx, id)
-	hovered := !disabled && rect_hovered(ctx, st.last_rect)
+	hovered := !disabled && widget_hovered(ctx, id)
 
 	if !disabled {
 		if ctx.input.mouse_pressed[.Left] && hovered {
@@ -5558,7 +5592,7 @@ radio_group_option :: proc(
 	if !disabled { widget_make_focusable(ctx, opt_id) }
 	st := widget_get(ctx, opt_id, .Radio)
 	focused := !disabled && widget_has_focus(ctx, opt_id)
-	hovered := !disabled && rect_hovered(ctx, st.last_rect)
+	hovered := !disabled && widget_hovered(ctx, opt_id)
 
 	if !disabled {
 		if ctx.input.mouse_pressed[.Left] && hovered {
@@ -5688,7 +5722,7 @@ _toggle_impl :: proc(
 	if !disabled { widget_make_focusable(ctx, id) }
 	st := widget_get(ctx, id, .Toggle)
 	focused := !disabled && widget_has_focus(ctx, id)
-	hovered := !disabled && rect_hovered(ctx, st.last_rect)
+	hovered := !disabled && widget_hovered(ctx, id)
 
 	if !disabled {
 		if ctx.input.mouse_pressed[.Left] && hovered {
@@ -5814,7 +5848,7 @@ _slider_impl :: proc(
 	if !disabled { widget_make_focusable(ctx, id) }
 	st := widget_get(ctx, id, .Slider)
 	focused := !disabled && widget_has_focus(ctx, id)
-	hovered := !disabled && rect_hovered(ctx, st.last_rect)
+	hovered := !disabled && widget_hovered(ctx, id)
 
 	// Start a drag on press-inside; hold it regardless of hover until the
 	// button is released. Mirrors how every OS-level slider behaves so
@@ -6081,7 +6115,7 @@ _select_impl :: proc(
 	}
 
 	trigger_rect := st.last_rect
-	trigger_hovered := !disabled && rect_hovered(ctx, trigger_rect)
+	trigger_hovered := !disabled && widget_hovered(ctx, id)
 
 	// Predict the overlay rect so outside-click dismiss has something
 	// to hit-test. Option rows are button-sized and sit flush against
@@ -6453,7 +6487,7 @@ _combobox_impl :: proc(
 
 	// Popover geometry (capped at 8 rows for reasonable height).
 	trigger_rect    := st.last_rect
-	trigger_hovered := !disabled && rect_hovered(ctx, trigger_rect)
+	trigger_hovered := !disabled && widget_hovered(ctx, id)
 
 	fs    := th.font.size_md
 	pad_x := th.spacing.md
@@ -7172,7 +7206,7 @@ _date_picker_impl :: proc(
 	}
 
 	trigger_rect := st.last_rect
-	trigger_hovered := !disabled && rect_hovered(ctx, trigger_rect)
+	trigger_hovered := !disabled && widget_hovered(ctx, id)
 
 	// Wall-clock today, used for the "today" highlight and as the seed
 	// month when no value / last-viewed month is set.
@@ -7904,7 +7938,7 @@ _time_picker_impl :: proc(
 	display := format(value) if format != nil else time_format(value)
 
 	trigger_rect := st.last_rect
-	trigger_hovered := !disabled && rect_hovered(ctx, trigger_rect)
+	trigger_hovered := !disabled && widget_hovered(ctx, id)
 
 	// Popover is paginated like the date picker: one grid at a time,
 	// with `< Hour >` / `< Minute >` / `< Second >` in the header to
@@ -8423,7 +8457,7 @@ _color_picker_impl :: proc(
 	}
 
 	trigger_rect    := st.last_rect
-	trigger_hovered := !disabled && rect_hovered(ctx, trigger_rect)
+	trigger_hovered := !disabled && widget_hovered(ctx, id)
 
 	// Popover geometry. The SV square is square-ish (square at 220×160 here
 	// which is close enough; shortens vertical so hex+hue fit in one card).
@@ -8903,12 +8937,24 @@ tabs :: proc(
 	labels:    []string,
 	active:    int,
 	on_change: proc(index: int) -> Msg,
+	id:        Widget_ID = 0,
 ) -> View {
 	th := ctx.theme
+
+	// Resolve a stable id for the tabs strip itself, then derive each
+	// tab button's id from it via `widget_make_sub_id`. Without this,
+	// tab buttons used pure positional auto-ids — if anything in the
+	// view tree above the tabs added or removed widgets between
+	// frames (e.g. a sidebar list growing as new messages arrived),
+	// the buttons' ids would shift and a previously-focused tab's
+	// focus ring could land on a different button than the user
+	// clicked. Sub-ids close that whole class of bug.
+	tabs_id := widget_resolve_id(ctx, id)
 
 	items := make([]View, len(labels), context.temp_allocator)
 	for label, i in labels {
 		is_active := i == active
+		btn_id := widget_make_sub_id(tabs_id, u64(i + 1))
 
 		// Tabs read cleanly on any parent when active/inactive don't
 		// fight the parent's bg. Inactive: plain `surface` — blends
@@ -8936,7 +8982,8 @@ tabs :: proc(
 
 		items[i] = col(
 			button(ctx, label, on_change(i),
-				bg     = bg,
+				id        = btn_id,
+				bg        = bg,
 				fg        = fg,
 				radius    = th.radius.sm,
 				padding   = {th.spacing.md, th.spacing.sm},
@@ -9074,7 +9121,7 @@ right_click_zone :: proc(
 	st := widget_get(ctx, id, .Click_Zone)
 
 	if ctx.input.mouse_pressed[.Right] &&
-	   rect_contains_point(st.last_rect, ctx.input.mouse_pos) {
+	   widget_hovered(ctx, id) {
 		send(ctx, on_right_click)
 	}
 
@@ -9130,7 +9177,7 @@ context_menu :: proc(
 	// Open on right-click inside the child's last-frame rect. Anchor the
 	// popover at the cursor position so the menu reads as "attached to
 	// what I just clicked," matching native context-menu behaviour.
-	child_hovered := rect_hovered(ctx, st.last_rect)
+	child_hovered := widget_hovered(ctx, id)
 	if ctx.input.mouse_pressed[.Right] && child_hovered {
 		st.open       = true
 		st.anchor_pos = ctx.input.mouse_pos
@@ -9199,7 +9246,7 @@ context_menu :: proc(
 	rows := make([dynamic]View, 0, len(items), context.temp_allocator)
 	for label, i in items {
 		append(&rows, button(ctx, label, on_select(i),
-			color      = th.color.elevated,
+			bg         = th.color.elevated,
 			fg         = th.color.fg,
 			radius     = th.radius.sm,
 			padding    = {th.spacing.md, th.spacing.sm},
@@ -9628,7 +9675,11 @@ split :: proc(
 		div_rect = Rect{cont.x, cont.y + first_size, cont.w, divider_thickness}
 	}
 
-	hover := rect_contains_point(div_rect, ctx.input.mouse_pos)
+	// `div_rect` ⊂ the split's container rect (cont = st.last_rect), so
+	// `widget_hovered(ctx, id)` supplies the z-gate (blocked behind a modal
+	// or open popover) for the divider too — without it a background split's
+	// divider stays draggable through a dialog scrim.
+	hover := rect_contains_point(div_rect, ctx.input.mouse_pos) && widget_hovered(ctx, id)
 
 	// Latch the drag on press-inside-divider. `drag_anchor` stores the
 	// grab offset `mouse − first_size` so the divider tracks the cursor
@@ -9936,7 +9987,7 @@ _number_input_impl :: proc(
 	// previous frame — the renderer stamps it via View_Text_Input. Caret
 	// placement happens after the draft is seeded so hit-testing runs
 	// against the string that will actually render.
-	mouse_in := !non_interactive && rect_hovered(ctx, st.last_rect)
+	mouse_in := !non_interactive && widget_hovered(ctx, base)
 	if !non_interactive && ctx.input.mouse_pressed[.Left] {
 		if mouse_in {
 			if !focused {
@@ -10199,7 +10250,7 @@ link :: proc(
 	st := widget_get(ctx, id, .Link)
 	focused := !disabled && widget_has_focus(ctx, id)
 
-	hovered := !disabled && rect_hovered(ctx, st.last_rect)
+	hovered := !disabled && widget_hovered(ctx, id)
 
 	if !disabled {
 		if ctx.input.mouse_pressed[.Left] && hovered {
@@ -11659,7 +11710,7 @@ table :: proc(
 			sort_id := widget_auto_id(ctx)
 			sort_st := widget_get(ctx, sort_id, .Click_Zone)
 			if ctx.input.mouse_pressed[.Left] &&
-			   rect_hovered(ctx, sort_st.last_rect) {
+			   widget_hovered(ctx, sort_id) {
 				new_asc := true
 				if sort_column == i { new_asc = !sort_ascending }
 				send(ctx, on_sort_change(i, new_asc))
@@ -11703,7 +11754,7 @@ table :: proc(
 			// lock-in would miss the flex case on subsequent frames.
 			if !handle_st.pressed &&
 			   ctx.input.mouse_pressed[.Left] &&
-			   rect_hovered(ctx, handle_st.last_rect) {
+			   widget_hovered(ctx, handle_id) {
 				handle_st.pressed     = true
 				handle_st.drag_anchor = ctx.input.mouse_pos.x - widths[i]
 
@@ -11766,7 +11817,7 @@ table :: proc(
 			// color to primary so the user sees what they're about to
 			// drag; active drag stays primary for the whole gesture.
 			divider_color := th.color.fg_muted
-			handle_hover := rect_hovered(ctx, handle_st.last_rect)
+			handle_hover := widget_hovered(ctx, handle_id)
 			if handle_hover || handle_st.pressed {
 				divider_color = th.color.primary
 			}
@@ -12001,7 +12052,7 @@ table :: proc(
 			row_id := widget_auto_id(ctx)
 			row_st := widget_get(ctx, row_id, .Click_Zone)
 			if ctx.input.mouse_pressed[.Left] &&
-			   rect_hovered(ctx, row_st.last_rect) {
+			   widget_hovered(ctx, row_id) {
 				send(ctx, on_row_click(i, ctx.input.modifiers))
 				// Clicking a row moves keyboard focus to the table
 				// so arrow keys Just Work without an extra Tab.

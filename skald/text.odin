@@ -2,8 +2,10 @@ package skald
 
 import "core:fmt"
 import "core:strings"
+import "core:unicode/utf8"
 import fs "vendor:fontstash"
 import vk "vendor:vulkan"
+import runa "third_party/runa"
 
 // INTER_VARIABLE is the default UI font — Inter Variable by Rasmus Andersson,
 // OFL-1.1 licensed. It's baked into the binary via #load so apps have usable
@@ -362,6 +364,18 @@ font_default :: proc(r: ^Renderer) -> Font {
 	return r.text.default_font
 }
 
+// text_shape_cache_size returns the number of distinct (font, size, text)
+// entries runa's shape cache currently holds. Since runa 1.2.0 the cache
+// is bounded by a soft cap (default 4096 ≈ ~4-8 MB at typical body
+// sizes) with O(1) LRU eviction past the cap — apps generating high
+// unique-text churn (code editors, log viewers, animated counters)
+// now have a fixed memory ceiling instead of accumulating forever.
+// Returns 0 on the fontstash backend.
+text_shape_cache_size :: proc(r: ^Renderer) -> int {
+	if r.text.runa_state == nil { return 0 }
+	return runa.cache_size(&r.text.runa_state.cache)
+}
+
 // font_bold / font_italic / font_bold_italic return the handles of the
 // embedded Inter static weights — what `rich_text` selects internally
 // when a span has `weight = .Bold` and/or `italic = true`. Apps that
@@ -716,6 +730,38 @@ expand_tabs :: proc(s: string) -> string {
 // Existing newlines in `text` (any of `\n`, `\r\n`, `\r`) force a break.
 // Returned slice and its backing strings all live in context.temp_allocator
 // — valid for the rest of the frame, not across frames.
+// wrap_break_prefix returns the byte length of the widest prefix of `s`
+// (cut on a UTF-8 rune boundary, always ≥ one rune) whose rendered width
+// fits `max_px` physical pixels. Rendered width is monotonic in prefix
+// length, so it binary-searches the rune boundaries — ~log(n) measure_text
+// calls. Used to hard-break an unbreakable token (long URL / hash / base64)
+// that's wider than the wrap width instead of letting it overflow.
+@(private)
+wrap_break_prefix :: proc(r: ^Renderer, s: string, size: f32, font: Font, scale, max_px: f32) -> int {
+	bounds: [dynamic]int   // rune-start byte offsets, then len(s)
+	bounds.allocator = context.temp_allocator
+	for i := 0; i < len(s); {
+		append(&bounds, i)
+		_, n := utf8.decode_rune_in_string(s[i:])
+		i += max(n, 1)
+	}
+	append(&bounds, len(s))
+	// Largest k≥1 with width(s[:bounds[k]]) ≤ max_px. Floors at 1 rune so a
+	// token narrower-than-one-glyph still advances (no infinite loop).
+	lo, hi, best := 1, len(bounds) - 1, 1
+	for lo <= hi {
+		mid := (lo + hi) / 2
+		cw, _ := measure_text(r, s[:bounds[mid]], size, font)
+		if cw * scale <= max_px {
+			best = mid
+			lo = mid + 1
+		} else {
+			hi = mid - 1
+		}
+	}
+	return bounds[best]
+}
+
 wrap_text :: proc(
 	r:         ^Renderer,
 	text:      string,
@@ -807,16 +853,21 @@ wrap_text :: proc(
 				candidate := para[line_begin:word_end]
 				cw, _ := measure_text(r, candidate, size, f)
 				w := cw * scale
-				if w <= max_width_px || line_begin == cursor {
-					// Either it fits, or it's the first word on the
-					// line (overflow is unavoidable for that single
-					// word — emit it anyway so we make forward
-					// progress instead of looping).
+				if w <= max_width_px {
 					last_fit_end = word_end
 					cursor = word_end
 					// Consume a single trailing space for the next
 					// word's leading gap.
 					if cursor < len(para) && para[cursor] == ' ' { cursor += 1 }
+				} else if line_begin == cursor {
+					// First token on the line is itself wider than
+					// max_width: hard-break it at the widest fitting
+					// rune-boundary prefix instead of overflowing. The
+					// remainder wraps onto the next line(s).
+					blen := wrap_break_prefix(r, para[line_begin:word_end], size, f, scale, max_width_px)
+					last_fit_end = line_begin + blen
+					cursor = last_fit_end
+					break
 				} else {
 					break
 				}
@@ -1043,6 +1094,46 @@ wrap_rich_text :: proc(
 			cur_w = 0
 			continue
 		}
+		// A single Word atom wider than the whole wrap width can't be
+		// helped by line-breaking — hard-break it at rune boundaries so
+		// it doesn't overflow (CSS `overflow-wrap: anywhere`). Flush the
+		// current line first so the long token starts fresh, then emit
+		// fitting prefixes as their own lines; the remainder appends
+		// normally. Sub-atoms inherit the original's span_idx, so the
+		// break keeps the token's styling. Rich-text widths are logical
+		// (no scale factor), so wrap_break_prefix is called with scale 1.
+		if max_width > 0 && atom.kind == .Word && atom.width > max_width {
+			if len(cur) > 0 {
+				flush(&lines, &cur, default_ascent, default_line_h)
+				clear(&cur); cur_w = 0
+			}
+			sp  := spans[atom.span_idx]
+			fnt := rich_span_font(r, base_font, sp)
+			sz  := rich_span_size(base_size, sp)
+			bs  := atom.byte_start
+			for bs < atom.byte_end {
+				rem_w, _ := measure_text(r, sp.str[bs:atom.byte_end], sz, fnt)
+				if rem_w <= max_width {
+					rem := atom
+					rem.byte_start = bs
+					rem.width      = rem_w
+					append(&cur, rem); cur_w += rem_w
+					break
+				}
+				blen   := wrap_break_prefix(r, sp.str[bs:atom.byte_end], sz, fnt, 1, max_width)
+				pw, _  := measure_text(r, sp.str[bs:bs+blen], sz, fnt)
+				prefix := atom
+				prefix.byte_start = bs
+				prefix.byte_end   = bs + blen
+				prefix.width      = pw
+				append(&cur, prefix)
+				flush(&lines, &cur, default_ascent, default_line_h)
+				clear(&cur); cur_w = 0
+				bs += blen
+			}
+			continue
+		}
+
 		// Overflow check: if this word would push past max_width and
 		// the current line isn't empty, try to break before it. We
 		// only break on Word atoms (spaces extending past max_width

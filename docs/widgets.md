@@ -35,7 +35,7 @@ per row" recipe walks through both styles.
 ## Contents
 
 - [Layout](#layout) — col, row, wrap_row, responsive, grid, spacer, flex, sized, clip, scroll, split
-- [Primitives](#primitives) — text, rect, divider, image
+- [Primitives](#primitives) — text, rect, divider, image, canvas
 - [Buttons and links](#buttons-and-links) — button, link
 - [Text entry](#text-entry) — text_input, search_field, number_input
 - [Booleans and choice](#booleans-and-choice) — checkbox, radio, radio_group, toggle, select, combobox, segmented
@@ -272,6 +272,14 @@ correctly without any caller-side splitting.
 Tab characters expand to four spaces of visible width — no
 column-aligned tab stops, just a fixed advance — so pasted code
 blocks and log lines don't render `\t` as a missing-glyph tofu.
+
+**Shape cache.** Skald's text engine (runa, default backend) memoises
+shaping by `(font, size, text)` for fast re-renders. The cache is
+bounded — soft default of 4096 entries (≈ 4-8 MB at body sizes) with
+O(1) LRU eviction past the cap. Apps with high text churn (code
+editors, log viewers, animated counters, financial tickers) hit the
+cap and recycle oldest entries, keeping memory flat. Call
+`skald.text_shape_cache_size(r)` to monitor the current count.
 
 ### text_selectable
 
@@ -532,6 +540,50 @@ ordinary `image()` widget can't be interleaved with `draw_*` calls
 because it lives in the view tree, not the immediate-mode canvas
 pass. Same `Image_Fit` semantics as the widget.
 
+### canvas
+
+```odin
+canvas(ctx, user: ^T,
+       draw:   proc(user: ^T, painter: Canvas_Painter),
+       id     = 0,
+       width  = 0, height = 0,
+       min_w  = 0, min_h  = 0,
+       cursor = .Default)
+```
+
+Framework escape hatch for arbitrary drawing. The widget claims a
+rectangular slot in the layout; at render time, your `draw` callback
+runs with a `Canvas_Painter` you can use to emit any of the public
+`draw_*` primitives (`draw_rect`, `draw_text`, `draw_triangle_strip`,
+`draw_image`, etc.). Skald opens a clip to the canvas bounds before
+the callback, so draws outside the rect are scissored away.
+
+`user` is an opaque pointer the builder passes through to the callback
+— pass app state, a per-frame snapshot, or any context the painter
+needs. Zero on `width` / `height` means "fill the parent's assigned
+extent"; non-zero forces a fixed size. `min_w` / `min_h` give the
+canvas an intrinsic floor so it doesn't collapse inside a
+content-sized stack.
+
+`cursor` sets the OS pointer shape while the mouse is over the
+canvas. `.Default` (the zero value) leaves the cursor unchanged.
+Paint apps pick per-tool (`.Crosshair` for brush, `.Move` for pan /
+camera, `.Not_Allowed` for a disabled tool). The field is read every
+frame from app state, so changing the active tool just changes the
+cursor on the next render — no callback wiring. For pixel-precise
+brush rings or magnifier glasses, draw those inside the `draw`
+callback anchored to `painter.mouse_pos` (OS cursors don't carry
+custom imagery).
+
+The canvas tracks its `last_rect`, so apps that need to do hit-testing
+against `ctx.input.mouse_pos` can grab it via `widget_get(ctx, id,
+.Canvas).last_rect`. Press / drag / release flow through `ctx.input`
+the same way as any other interactive widget.
+
+**Example: `examples/37_canvas`.** Drag the mouse or a pen to draw
+pressure-varying strokes; `cursor = .Crosshair` shows how the OS
+pointer shape switches when you hover.
+
 ---
 
 ## Buttons and links
@@ -568,6 +620,7 @@ hyperlink-styled actions, etc.
 ```odin
 text_input(ctx, value: string, on_change: proc(new: string) -> Msg,
            placeholder = "", width = 0, height = 0,
+           font_size = 0, font = 0,
            disabled = false, multiline = false, wrap = false,
            password = false,
            clear_button = false, escape_clears = false,
@@ -578,6 +631,12 @@ Editable text field. Single-line by default; set `multiline = true`
 for a text area (and `wrap = true` if you want soft-wrap). Built-in:
 selection, clipboard (Ctrl+C/X/V), Ctrl-A select all, undo/redo
 (Ctrl+Z/Y), cursor navigation, IME.
+
+`font` is a `Font` handle from `font_load` (`0` = the default Inter).
+The font threads through measurement, caret positioning, wrap, and
+hit-testing — useful for a code/prose editor that wants a custom
+typeface (e.g. Iosevka) without swapping the renderer's global
+default.
 
 `password = true` masks input and suppresses copy/cut. `clear_button =
 true` adds a `×` button at the right edge that clears the value when
@@ -1545,3 +1604,61 @@ Round-trip window geometry through the app's own persistence so the
 window remembers its size and position between launches. See the
 cookbook recipe "Save and restore window size / position between
 launches."
+
+## Audio capture and playback
+
+Microphone capture and PCM playback via SDL3 — no new C dependency.
+Samples are 32-bit float (`f32`); SDL converts to/from the device's
+native format. **Codec is the app's job** — Skald handles only raw
+PCM, so Opus / AAC encoding lives in the app. The audio subsystem
+inits lazily on first open, so apps that never use it pay nothing.
+
+### Capture
+
+```odin
+audio_capture_devices(allocator = context.temp_allocator) -> []Audio_Device
+audio_capture_open(device_id = 0, rate = 48000, channels = 1) -> (^Audio_Capture, bool)
+audio_capture_available(cap) -> int            // queued samples
+audio_capture_read(cap, into: []f32) -> int    // pull samples, returns count
+audio_capture_close(cap)
+```
+
+`device_id = 0` opens the system default mic. Capture starts on open;
+poll `audio_capture_read` from your update loop (or a `cmd_delay`
+tick) to drain samples as they arrive — SDL buffers internally so a
+slow poll won't drop audio. 48 kHz mono is the right default for voice.
+
+### Playback
+
+```odin
+audio_playback_devices(allocator = context.temp_allocator) -> []Audio_Device
+audio_play_open(device_id = 0, rate = 48000, channels = 1) -> (^Audio_Playback, bool)
+audio_play_write(pb, samples: []f32) -> bool   // queue PCM
+audio_play_queued(pb) -> int                   // samples still pending
+audio_play_close(pb)
+```
+
+Write a whole decoded clip at once, then poll `audio_play_queued`
+until it hits 0 to detect playback finish (or drive a progress bar).
+
+### Device selection
+
+`audio_capture_devices` / `audio_playback_devices` return
+`[]Audio_Device{ id, name }`. Feed the names to a `select`, store the
+chosen `id`, pass it to the matching `_open`. No dedicated audio
+widget — the picker is a `select`, the controls are `button`s, the
+level meter is a `rect` whose width tracks input RMS.
+
+### Robustness + platform notes
+
+- **Device removal is safe.** Unplugging mid-use doesn't crash —
+  capture goes quiet (`audio_capture_read` returns 0), and a
+  default-device stream auto-migrates to the new default.
+- **macOS / iOS mic capture needs `NSMicrophoneUsageDescription`** in
+  the app bundle's Info.plist (a packaging concern; playback needs no
+  permission).
+- Cross-platform via SDL3: Linux (Pulse / PipeWire / ALSA), macOS
+  (CoreAudio), Windows (WASAPI).
+
+**Example: `examples/48_audio`** — pick a mic, record with a live
+input-level meter, play it back. Raw PCM, no codec.

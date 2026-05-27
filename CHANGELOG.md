@@ -6,27 +6,132 @@ bug fixes bump the patch.
 
 ## Unreleased
 
+### Fixed
+
+- **Text-engine hardening (runa).** Fixed two issues found by fuzzing the
+  bundled text engine under AddressSanitizer/MemorySanitizer: (1) a
+  Devanagari cluster ending in RA + Virama (e.g. `र`+`्`) read out of bounds
+  in the reph reorder and crashed — trivially triggerable from untrusted
+  text; (2) glyph-bitmap allocation was unbounded, so a pathological size or
+  a malicious font's absurd glyph bbox could force an enormous allocation.
+  Both are now guarded. (Upstream runa 1.2.1.)
+
+- **Long unbreakable tokens wrap instead of overflowing.** A single
+  spaceless token (URL, hash, base64) wider than `max_width` used to
+  overflow and push its container off-screen. `wrap_text` and
+  `wrap_rich_text` now hard-break it at the widest fitting rune boundary
+  (CSS `overflow-wrap: anywhere`) — automatic for any `max_width > 0`,
+  no-wrap (`max_width = 0`) unchanged.
+
+- **Modal & popover click-through.** Interactive widgets behind a modal
+  dialog or under an open popover (select / picker / menu) could still
+  receive clicks when their rect fell inside the card/popover footprint —
+  the scrim didn't really block them. Every click/press gate now uses the
+  z-aware `widget_hovered` (button, checkbox, radio, toggle, slider, link,
+  the picker triggers incl. emoji, table rows, context_menu,
+  right_click_zone, split divider, …), and `widget_hovered`'s popover-bleed
+  guard is z-aware too.
+
+## 1.0.0-rc9 — 2026-05-25
+
+Two memory-leak fixes — the per-call `cmd_thread` arena leak and
+runa's unbounded shape cache — plus a new audio capture/playback
+module and widget fixes. No breaking changes.
+
 ### Added
 
+- **Audio capture + playback (`skald/audio.odin`).** Microphone
+  recording and PCM playback via SDL3 — no new C dependency.
+  `audio_capture_open` / `_read` pull f32 PCM from a mic;
+  `audio_play_open` / `_write` queue it to a speaker; device
+  enumeration drives a `select`-based picker. Codec-neutral —
+  encoding (Opus / AAC) is the app's job. macOS mic capture needs an
+  `NSMicrophoneUsageDescription` Info.plist key (untested on real
+  macOS hardware so far; Linux verified). New example
+  `examples/48_audio`; cookbook recipe for the record→play flow.
+
+- **`font` parameter on `text_input`.** Editable fields can now use a
+  custom typeface (a `Font` handle from `font_load`) instead of only
+  the renderer's global default — useful for code / prose editors
+  wanting Iosevka etc. Threads through measurement, caret positioning,
+  wrap, and hit-testing, so editing stays correct under the custom
+  font's metrics. Defaults to `0` (Inter), so existing call sites are
+  unchanged.
+
+- **`cursor: Cursor_Shape` parameter on `canvas()`** — declarative
+  cursor applied while the mouse hovers the canvas. Paint apps pick
+  per-tool (`.Crosshair` for brush, `.Move` for pan, etc.); reads from
+  app state every frame, no callback wiring. Zero-default (`.Default`)
+  preserves the prior behaviour of leaving the cursor unchanged.
+
 - **`widget_hovered(ctx, id)` — z-aware input-gating helper.** Sibling
-  of `rect_hovered`, used in click / press handlers where modal-trap
-  correctness matters. `rect_hovered`'s modal check is geometry-only:
-  it exempts any widget whose `last_rect` is geometrically contained
-  in the dialog card, on the assumption that contained widgets are
-  modal children. That assumption is wrong for widgets in the main
-  view tree whose rect happens to overlap the dialog card position
-  (chat-bubble images behind a settings dialog were the smoking gun)
-  — those widgets still received clicks through the scrim. The new
-  `widget_hovered(ctx, id)` checks the widget's actual render-layer
-  position via a new `last_overlay_frame` stamp on `Widget_State`,
-  set by `widget_record_rect` whenever the renderer is inside any
-  overlay subtree (dialog cards, popovers, menus). Widgets in the
-  main tree never stamp this, so they're correctly z-blocked when a
-  modal is open. `rect_hovered` is unchanged and remains the right
-  tool for purely visual hover effects (button tints, tooltip
-  triggers); apps writing custom click handlers should reach for
-  `widget_hovered`. No breaking changes — the new helper is additive,
-  built-in widgets keep their existing call sites for now.
+  of `rect_hovered` for click / press handlers where modal-trap
+  correctness matters. `rect_hovered`'s modal check is geometry-only,
+  so a main-tree widget whose rect happens to overlap a dialog card
+  still received clicks through the scrim (chat-bubble images behind a
+  settings dialog were the smoking gun). `widget_hovered` instead
+  checks the widget's actual render layer via a new `last_overlay_frame`
+  stamp, so main-tree widgets are correctly z-blocked when a modal is
+  open. `rect_hovered` is unchanged for visual hover effects; reach for
+  `widget_hovered` in custom click handlers. Additive — no breaking
+  changes.
+
+- **`text_shape_cache_size(r)`** — diagnostic returning the count of
+  shape-cache entries currently held by the runa backend. Returns 0 on
+  the fontstash backend (no shape cache there).
+
+### Changed
+
+- **Vendored runa refreshed to 1.2.0 — shape cache now LRU-evicts at
+  4096 entries.** Pre-1.2.0 the shape cache grew without bound for the
+  renderer's lifetime; a stress test at 2000 unique strings/sec showed
+  ~100 MB/min of heap growth. Runa 1.2.0 caps the cache at a soft
+  default of 4096 entries (~4-8 MB at typical body sizes) with O(1)
+  LRU eviction; same stress test now plateaus at +1 MB / 2 min.
+  Real-world apps with high text churn (code editors, log viewers,
+  animated counters, financial tickers) now have a fixed memory
+  ceiling instead of accumulating forever. No app-side code change
+  required.
+
+- **`emoji_picker` search field now renders via `View_Text_Input`.** It
+  was a plain `text` widget that captured keystrokes but drew no caret.
+  It now constructs a `View_Text_Input` directly (the same path
+  `command_palette` uses), so caret, placeholder fade, and
+  scroll-on-overflow match every other input. Key handling is
+  unchanged — purely a rendering refactor.
+
+### Fixed
+
+- **Worker thread temp_allocator leak fixed.** `cmd_thread` and
+  `cmd_thread_simple` spawn a fresh OS thread per call whose
+  `@thread_local` default temp_allocator orphaned its heap blocks on
+  thread exit — multi-GB process growth over hours of polling.
+  Runners now call `runtime.default_temp_allocator_destroy` before
+  exit. The documented worker contract is unchanged: returned-Msg
+  strings / slices must be heap-allocated, not temp-arena (the
+  temp_allocator is destroyed the instant the worker returns).
+
+- **Multiline `text_input` in fill mode scrolled prematurely.** A
+  stretched editor (`flex(1, text_input(height = 0, multiline = true))`)
+  scrolled once content passed ~6 lines even with room below — the
+  scroll math used the fixed placeholder height, not the field's real
+  stretched height. Now falls back to `last_rect.h` when `height == 0`.
+
+- **`tabs` widget — focus ring could land on the wrong tab.** Each tab
+  button used a positional auto-id, so any widget churn above the
+  tabs strip in the same frame (e.g. a sidebar list growing as new
+  messages arrived) shifted the auto-id counter and the previously-
+  focused tab's id mapped to a different button — visible as a
+  focus ring on a non-active tab. Tab buttons now use
+  `widget_make_sub_id` for stable cross-frame identity. `tabs` also
+  gains an optional `id: Widget_ID = 0` parameter for apps that want
+  to pin the strip's id explicitly (`skald.hash_id("settings-tabs")`);
+  default behaviour unchanged for existing callers.
+
+- **`context_menu` rows passed the pre-rc6 `color` argument.** An
+  internal `button` call still used the old `color =` name after rc6
+  renamed it to `bg`; corrected to `bg`. Thanks @quonic (#2). No
+  app-facing change.
 
 ## 1.0.0-rc8 — 2026-05-21
 

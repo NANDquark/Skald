@@ -10,6 +10,40 @@
 
 ---
 
+## Execution Progress
+
+Updated: 2026-05-29 after the first implementation attempt was paused by the
+user.
+
+- Design committed:
+  - `6811647` — `docs: design karl2d gamepad widget navigation`
+- Plan committed:
+  - `2e24787` — `docs: plan karl2d gamepad widget navigation`
+- Baseline before implementation passed:
+  - `odin test ./skald -collection:gui=. -define:SKALD_RUNA=false`
+    passed with 22 tests.
+  - `odin check ./skald_karl2d -collection:gui=. -no-entry-point`
+    passed.
+- Task 1 was dispatched to a worker, then the user paused the run before the
+  worker returned. The worker was shut down while still running.
+- No implementation task has been completed, reviewed, or committed.
+- Current uncommitted implementation state:
+  - `skald/backend_fake_test.odin` has Task 1 Step 1's three failing gamepad
+    capture tests inserted after `do_not_capture_empty_frame`.
+  - `skald/input.odin`, `skald/backend.odin`, and `skald/input_capture.odin`
+    have not been updated yet.
+
+Resume from here:
+
+1. Continue Task 1 at Step 2 by running
+   `odin test ./skald -collection:gui=. -define:SKALD_RUNA=false`.
+2. Expected result: failure from undefined gamepad input/capture fields.
+3. Complete Task 1 Steps 3-6.
+4. Run the required spec-compliance and code-quality reviews for Task 1 before
+   moving to Task 2.
+
+---
+
 ## File Structure
 
 - Modify `skald/input.odin`: add `Gamepad_Nav_*` types and reset edge fields.

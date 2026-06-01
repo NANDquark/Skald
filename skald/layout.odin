@@ -1,5 +1,6 @@
 package skald
 
+import "core:fmt"
 import "core:math"
 import "core:strings"
 
@@ -1531,10 +1532,43 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 		draw_image_fit_ctx(r, img, box, vv.fit, vv.tint)
 
 	case View_Image_Background:
-		// Rendering belongs to Task 3.
+		bounds := Rect{origin.x, origin.y, size.x, size.y}
+		push_clip(r, bounds)
+		image := image_load_path_ctx(r, vv.path)
+		if rawptr(image) == nil || !draw_image_fit_ctx(r, image, bounds, vv.fit, vv.tint) {
+			draw_rect(r, bounds, {1, 0, 1, 1}, 0)
+		}
+		render_view(r, vv.child^, origin, size)
+		pop_clip(r)
 
 	case View_Nine_Slice_Background:
-		// Rendering belongs to Task 3.
+		ext := nine_slice_extents(vv.slice)
+		bounds := Rect{origin.x, origin.y, size.x, size.y}
+		child_size := [2]f32{
+			max(size.x - ext.left - ext.right, 0),
+			max(size.y - ext.top - ext.bottom, 0),
+		}
+		child_origin := [2]f32{origin.x + ext.left, origin.y + ext.top}
+
+		when ODIN_DEBUG {
+			if size.x < ext.left + ext.right || size.y < ext.top + ext.bottom {
+				fmt.eprintfln(
+					"skald: nine-slice destination smaller than decoration extents: %s",
+					vv.path,
+				)
+			}
+		}
+
+		push_clip(r, bounds)
+		image := image_load_path_ctx(r, vv.path)
+		if rawptr(image) == nil || !draw_nine_slice_background(r, image, bounds, vv.slice, vv.tint) {
+			when ODIN_DEBUG {
+				fmt.eprintfln("skald: nine-slice background unsupported or invalid: %s", vv.path)
+			}
+			draw_rect(r, bounds, {1, 0, 1, 1}, 0)
+		}
+		render_view(r, vv.child^, child_origin, child_size)
+		pop_clip(r)
 
 	case View_Split:
 		// Record the container rect so next frame's builder can hit-
@@ -1776,6 +1810,141 @@ render_overlays :: proc(r: ^Render_Context) {
 		backend_set_alpha(r, r.alpha_multiplier)
 		i += 1
 	}
+}
+
+@(private)
+rect_empty :: proc(r: Rect) -> bool {
+	return r.w == 0 || r.h == 0
+}
+
+@(private)
+nine_slice_region_valid :: proc(r: Rect, image_size: [2]f32) -> bool {
+	if r.w < 0 || r.h < 0 || r.x < 0 || r.y < 0 {return false}
+	if rect_empty(r) {return true}
+	return r.x + r.w <= image_size.x && r.y + r.h <= image_size.y
+}
+
+@(private)
+draw_image_region_tiled_x :: proc(
+	r: ^Render_Context,
+	image: Backend_Image,
+	src: Rect,
+	dst: Rect,
+	tint: Color,
+) -> bool {
+	if rect_empty(src) || dst.w <= 0 || dst.h <= 0 {return true}
+	x := dst.x
+	remaining := dst.w
+	for remaining > 0 {
+		width := min(src.w, remaining)
+		part := src
+		part.w = width
+		if !draw_image_region_ctx(r, image, part, Rect{x, dst.y, width, dst.h}, tint) {return false}
+		x += width
+		remaining -= width
+	}
+	return true
+}
+
+@(private)
+draw_image_region_tiled_y :: proc(
+	r: ^Render_Context,
+	image: Backend_Image,
+	src: Rect,
+	dst: Rect,
+	tint: Color,
+) -> bool {
+	if rect_empty(src) || dst.w <= 0 || dst.h <= 0 {return true}
+	y := dst.y
+	remaining := dst.h
+	for remaining > 0 {
+		height := min(src.h, remaining)
+		part := src
+		part.h = height
+		if !draw_image_region_ctx(r, image, part, Rect{dst.x, y, dst.w, height}, tint) {return false}
+		y += height
+		remaining -= height
+	}
+	return true
+}
+
+@(private)
+draw_image_region_tiled_xy :: proc(
+	r: ^Render_Context,
+	image: Backend_Image,
+	src: Rect,
+	dst: Rect,
+	tint: Color,
+) -> bool {
+	if rect_empty(src) || dst.w <= 0 || dst.h <= 0 {return true}
+	y := dst.y
+	remaining_h := dst.h
+	for remaining_h > 0 {
+		height := min(src.h, remaining_h)
+		x := dst.x
+		remaining_w := dst.w
+		for remaining_w > 0 {
+			width := min(src.w, remaining_w)
+			part := src
+			part.w = width
+			part.h = height
+			if !draw_image_region_ctx(r, image, part, Rect{x, y, width, height}, tint) {return false}
+			x += width
+			remaining_w -= width
+		}
+		y += height
+		remaining_h -= height
+	}
+	return true
+}
+
+@(private)
+draw_nine_slice_background :: proc(
+	r: ^Render_Context,
+	image: Backend_Image,
+	bounds: Rect,
+	slice: Nine_Slice,
+	tint: Color,
+) -> bool {
+	image_size, ok := image_size_ctx(r, image)
+	if !ok || r.backend.images.draw_region == nil {return false}
+
+	regions := [?]Rect{
+		slice.top_left, slice.top, slice.top_right,
+		slice.left, slice.center, slice.right,
+		slice.bottom_left, slice.bottom, slice.bottom_right,
+	}
+	for region in regions {
+		if !nine_slice_region_valid(region, image_size) {return false}
+	}
+
+	ext := nine_slice_extents(slice)
+	inner := Rect{
+		bounds.x + ext.left,
+		bounds.y + ext.top,
+		max(bounds.w - ext.left - ext.right, 0),
+		max(bounds.h - ext.top - ext.bottom, 0),
+	}
+
+	if !rect_empty(slice.top_left) {
+		if !draw_image_region_ctx(r, image, slice.top_left, Rect{bounds.x, bounds.y, slice.top_left.w, slice.top_left.h}, tint) {return false}
+	}
+	if !rect_empty(slice.top_right) {
+		if !draw_image_region_ctx(r, image, slice.top_right, Rect{bounds.x + bounds.w - slice.top_right.w, bounds.y, slice.top_right.w, slice.top_right.h}, tint) {return false}
+	}
+	if !rect_empty(slice.bottom_left) {
+		if !draw_image_region_ctx(r, image, slice.bottom_left, Rect{bounds.x, bounds.y + bounds.h - slice.bottom_left.h, slice.bottom_left.w, slice.bottom_left.h}, tint) {return false}
+	}
+	if !rect_empty(slice.bottom_right) {
+		if !draw_image_region_ctx(r, image, slice.bottom_right, Rect{bounds.x + bounds.w - slice.bottom_right.w, bounds.y + bounds.h - slice.bottom_right.h, slice.bottom_right.w, slice.bottom_right.h}, tint) {return false}
+	}
+
+	if !draw_image_region_tiled_x(r, image, slice.top, Rect{bounds.x + slice.top_left.w, bounds.y, max(bounds.w - slice.top_left.w - slice.top_right.w, 0), slice.top.h}, tint) {return false}
+	if !draw_image_region_tiled_x(r, image, slice.bottom, Rect{bounds.x + slice.bottom_left.w, bounds.y + bounds.h - slice.bottom.h, max(bounds.w - slice.bottom_left.w - slice.bottom_right.w, 0), slice.bottom.h}, tint) {return false}
+	if !draw_image_region_tiled_y(r, image, slice.left, Rect{bounds.x, bounds.y + slice.top_left.h, slice.left.w, max(bounds.h - slice.top_left.h - slice.bottom_left.h, 0)}, tint) {return false}
+	if !draw_image_region_tiled_y(r, image, slice.right, Rect{bounds.x + bounds.w - slice.right.w, bounds.y + slice.top_right.h, slice.right.w, max(bounds.h - slice.top_right.h - slice.bottom_right.h, 0)}, tint) {return false}
+	if !draw_image_region_tiled_xy(r, image, slice.center, inner, tint) {return false}
+	return true
 }
 
 // draw_focus_ring paints a 2-px accent outline that respects the widget's

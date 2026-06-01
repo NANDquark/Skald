@@ -737,3 +737,168 @@ nine_slice_extents_ignore_regions_with_an_empty_axis :: proc(t: ^testing.T) {
 
 	testing.expect_value(t, nine_slice_extents(slice), Nine_Slice_Extents{})
 }
+
+@(test)
+image_background_draws_before_child_inside_wrapper_clip :: proc(t: ^testing.T) {
+	fake: Fake_Backend_State
+	defer delete(fake.ops)
+	backend := fake_backend(&fake)
+	rc := render_context_from_backend(&backend)
+	ctx := Ctx(int){render = &rc}
+
+	v := image_background(
+		&ctx,
+		"app://paper",
+		rect({0, 0}, rgb(0x00FF00)),
+		fit = .Contain,
+		tint = rgba(0x80FFFFFF),
+	)
+	render_view(&rc, v, {5, 6}, {30, 40})
+
+	if !testing.expect_value(t, len(fake.ops), 4) {return}
+	testing.expect_value(t, fake.ops[0].kind, Fake_Draw_Kind.Push_Clip)
+	testing.expect_value(t, fake.ops[0].rect, Rect{5, 6, 30, 40})
+	testing.expect_value(t, fake.ops[1].kind, Fake_Draw_Kind.Image)
+	testing.expect_value(t, fake.ops[1].fit, Image_Fit.Contain)
+	testing.expect_value(t, fake.ops[1].color, rgba(0x80FFFFFF))
+	testing.expect_value(t, fake.ops[2].kind, Fake_Draw_Kind.Rect)
+	testing.expect_value(t, fake.ops[2].rect, Rect{5, 6, 30, 40})
+	testing.expect_value(t, fake.ops[3].kind, Fake_Draw_Kind.Pop_Clip)
+}
+
+@(test)
+nine_slice_background_tiles_partial_top_edge_and_places_child_in_conservative_interior :: proc(
+	t: ^testing.T,
+) {
+	fake := Fake_Backend_State{image_native_size = {32, 32}}
+	defer delete(fake.ops)
+	backend := fake_backend(&fake)
+	rc := render_context_from_backend(&backend)
+	ctx := Ctx(int){render = &rc}
+
+	slice := Nine_Slice{
+		top_left  = {0, 0, 3, 4},
+		top       = {3, 0, 4, 2},
+		top_right = {7, 0, 5, 6},
+		left      = {0, 4, 2, 3},
+	}
+	v := nine_slice_background(&ctx, "app://frame", slice, rect({0, 0}, rgb(0x00FF00)))
+	render_view(&rc, v, {10, 20}, {19, 16})
+
+	testing.expect_value(t, fake.ops[1].src, Rect{0, 0, 3, 4})
+	testing.expect_value(t, fake.ops[1].rect, Rect{10, 20, 3, 4})
+	testing.expect_value(t, fake.ops[2].src, Rect{7, 0, 5, 6})
+	testing.expect_value(t, fake.ops[2].rect, Rect{24, 20, 5, 6})
+
+	// Available top span is 19 - 3 - 5 = 11, so tile widths are 4 + 4 + 3.
+	testing.expect_value(t, fake.ops[3].src, Rect{3, 0, 4, 2})
+	testing.expect_value(t, fake.ops[3].rect, Rect{13, 20, 4, 2})
+	testing.expect_value(t, fake.ops[4].src, Rect{3, 0, 4, 2})
+	testing.expect_value(t, fake.ops[4].rect, Rect{17, 20, 4, 2})
+	testing.expect_value(t, fake.ops[5].src, Rect{3, 0, 3, 2})
+	testing.expect_value(t, fake.ops[5].rect, Rect{21, 20, 3, 2})
+
+	// Conservative extents: left=max(3,2,0), top=max(4,2,6).
+	// Child receives x=13, y=26, w=11, h=10.
+	testing.expect_value(t, fake.ops[len(fake.ops) - 2].kind, Fake_Draw_Kind.Rect)
+	testing.expect_value(t, fake.ops[len(fake.ops) - 2].rect, Rect{13, 26, 11, 10})
+}
+
+@(test)
+nine_slice_background_tiles_center_with_partial_column_and_row :: proc(t: ^testing.T) {
+	fake := Fake_Backend_State{image_native_size = {16, 16}}
+	defer delete(fake.ops)
+	backend := fake_backend(&fake)
+	rc := render_context_from_backend(&backend)
+	ctx := Ctx(int){render = &rc}
+
+	slice := Nine_Slice{center = {4, 5, 3, 2}}
+	v := nine_slice_background(&ctx, "app://center", slice, spacer(0))
+	render_view(&rc, v, {0, 0}, {8, 5})
+
+	// 3 + 3 + 2 columns crossed with 2 + 2 + 1 rows.
+	testing.expect_value(t, len(fake.ops), 11)
+	testing.expect_value(t, fake.ops[9].src, Rect{4, 5, 2, 1})
+	testing.expect_value(t, fake.ops[9].rect, Rect{6, 4, 2, 1})
+}
+
+@(test)
+nine_slice_background_draws_placeholder_when_region_service_is_missing :: proc(t: ^testing.T) {
+	fake := Fake_Backend_State{image_native_size = {16, 16}}
+	defer delete(fake.ops)
+	backend := fake_backend(&fake)
+	backend.images.draw_region = nil
+	rc := render_context_from_backend(&backend)
+	ctx := Ctx(int){render = &rc}
+
+	slice := Nine_Slice{top_left = {0, 0, 4, 4}}
+	v := nine_slice_background(&ctx, "app://frame", slice, rect({0, 0}, rgb(0x00FF00)))
+	render_view(&rc, v, {1, 2}, {20, 12})
+
+	if !testing.expect_value(t, len(fake.ops), 4) {return}
+	testing.expect_value(t, fake.ops[0].kind, Fake_Draw_Kind.Push_Clip)
+	testing.expect_value(t, fake.ops[1].kind, Fake_Draw_Kind.Rect)
+	testing.expect_value(t, fake.ops[1].rect, Rect{1, 2, 20, 12})
+	testing.expect_value(t, fake.ops[1].color, Color{1, 0, 1, 1})
+	testing.expect_value(t, fake.ops[2].rect, Rect{5, 6, 16, 8})
+	testing.expect_value(t, fake.ops[3].kind, Fake_Draw_Kind.Pop_Clip)
+}
+
+@(test)
+nine_slice_background_draws_placeholder_for_out_of_bounds_source :: proc(t: ^testing.T) {
+	fake := Fake_Backend_State{image_native_size = {8, 8}}
+	defer delete(fake.ops)
+	backend := fake_backend(&fake)
+	rc := render_context_from_backend(&backend)
+	ctx := Ctx(int){render = &rc}
+
+	slice := Nine_Slice{top_left = {7, 7, 2, 2}}
+	v := nine_slice_background(&ctx, "app://invalid", slice, spacer(0))
+	render_view(&rc, v, {0, 0}, {12, 12})
+
+	testing.expect_value(t, fake.ops[1].kind, Fake_Draw_Kind.Rect)
+	testing.expect_value(t, fake.ops[1].color, Color{1, 0, 1, 1})
+}
+
+@(test)
+nine_slice_background_clamps_child_when_destination_is_too_small :: proc(t: ^testing.T) {
+	fake := Fake_Backend_State{image_native_size = {16, 16}}
+	defer delete(fake.ops)
+	backend := fake_backend(&fake)
+	rc := render_context_from_backend(&backend)
+	ctx := Ctx(int){render = &rc}
+
+	slice := Nine_Slice{
+		top_left = {0, 0, 6, 7},
+		top_right = {6, 0, 6, 7},
+		bottom_left = {0, 7, 6, 7},
+		bottom_right = {6, 7, 6, 7},
+	}
+	v := nine_slice_background(&ctx, "app://tight", slice, rect({0, 0}, rgb(0x00FF00)))
+	render_view(&rc, v, {10, 20}, {8, 8})
+
+	testing.expect_value(t, fake.ops[len(fake.ops) - 2].kind, Fake_Draw_Kind.Rect)
+	testing.expect_value(t, fake.ops[len(fake.ops) - 2].rect, Rect{16, 27, 0, 0})
+}
+
+@(test)
+nine_slice_background_allows_corner_only_frames :: proc(t: ^testing.T) {
+	fake := Fake_Backend_State{image_native_size = {16, 16}}
+	defer delete(fake.ops)
+	backend := fake_backend(&fake)
+	rc := render_context_from_backend(&backend)
+	ctx := Ctx(int){render = &rc}
+
+	slice := Nine_Slice{
+		top_left = {0, 0, 3, 4},
+		bottom_right = {4, 5, 6, 7},
+	}
+	v := nine_slice_background(&ctx, "app://corners", slice, spacer(0))
+	render_view(&rc, v, {10, 20}, {30, 40})
+
+	if !testing.expect_value(t, len(fake.ops), 4) {return}
+	testing.expect_value(t, fake.ops[1].src, Rect{0, 0, 3, 4})
+	testing.expect_value(t, fake.ops[1].rect, Rect{10, 20, 3, 4})
+	testing.expect_value(t, fake.ops[2].src, Rect{4, 5, 6, 7})
+	testing.expect_value(t, fake.ops[2].rect, Rect{34, 53, 6, 7})
+}

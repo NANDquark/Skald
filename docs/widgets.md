@@ -476,6 +476,30 @@ the same one in many places.
 
 **Example: `examples/20_image`.**
 
+#### Karl2D container image backgrounds
+
+```odin
+image_background(ctx, path, child, fit = .None, tint = {1, 1, 1, 1})
+nine_slice_background(ctx, path, slice: Nine_Slice, child, tint = {1, 1, 1, 1})
+image_load_bytes(ctx, name, bytes) -> bool
+image_size(ctx, path) -> ([2]f32, bool)
+```
+
+These wrappers and the encoded-byte helper are implemented for Karl2D only in
+this milestone. The native SDL/Vulkan backend does not yet wire the optional
+encoded-byte, size, or source-region services.
+
+`path` accepts disk paths and registered synthetic names. Use
+`image_load_bytes` to register encoded bytes, including bytes embedded with
+`#load`, under a synthetic name. `image_load_pixels` remains the existing
+raw-RGBA desktop registration API.
+
+`Nine_Slice` rectangles are optional source-image pixel regions. Corners keep
+their native dimensions. Borders and the optional center tile repeat at native
+pixel scale, with a clipped final tile when needed. The child renders in the
+conservative interior, so its existing `bg` fills the center without covering
+the decorative chrome.
+
 #### image_load_pixels
 
 ```odin

@@ -86,6 +86,7 @@ meant to exercise — the one-liners below are a jumping-off point.
 | Example | What it teaches |
 |---------|-----------------|
 | `50_karl2d_overlay` | Karl2D game loop with a Skald overlay. Shows split `begin_frame`/`end_frame`, keyboard pass-through, UI capture, a button, and text input. |
+| `51_karl2d_backgrounds` | Karl2D-only container decoration: fitted single-image backgrounds, explicit nine-slice atlas regions, asymmetric and open-sided frames, optional center tiles, and `#load`-embedded encoded image bytes. |
 
 ### Theming
 

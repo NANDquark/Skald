@@ -250,7 +250,11 @@ at runtime via a `runa_state` field on the renderer. `measure_text`
 is exposed to widget builders so text-input's caret-from-click
 hit-testing doesn't wait for the draw pass.
 
-Images are uploaded lazily on first reference and cached by path.
+Images are uploaded lazily on first reference and cached by path. The backend
+service also has optional hooks for encoded byte registration, native-size
+queries, and source-region draws. The Karl2D adapter implements those optional
+hooks for `#load` assets and container background wrappers; the SDL/Vulkan
+compatibility backend intentionally leaves them unset for now.
 
 ## Backend services
 

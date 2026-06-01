@@ -6,6 +6,15 @@ bug fixes bump the patch.
 
 ## Unreleased
 
+### Added
+
+- **Karl2D container image backgrounds.** Added `image_background` and
+  `nine_slice_background` wrappers for layout containers, explicit optional
+  atlas regions for asymmetric or open-sided chrome, native-scale tiling with
+  clipped final tiles, and `image_load_bytes` / `image_size` helpers for
+  `#load`-embedded assets. Concrete backend support is currently Karl2D-only;
+  SDL/Vulkan support remains deferred.
+
 ### Fixed
 
 - **Text-engine hardening (runa).** Fixed two issues found by fuzzing the

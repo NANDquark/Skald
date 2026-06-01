@@ -7,6 +7,8 @@ import "core:fmt"
 
 FRAME_NAME :: "app://karl2d-nine-slice-frame"
 FRAME_JPG  :: #load("assets/9-slice.jpg", []byte)
+IMAGE_NAME :: "app://karl2d-image-background"
+IMAGE_PNG  :: #load("../20_image/assets/MooMoo.png", []byte)
 
 FRAME :: skald.Nine_Slice {
 	top_left     = {0, 0, 17, 17},
@@ -70,6 +72,7 @@ view :: proc(s: State, ctx: ^skald.Ctx(Msg)) -> skald.View {
 	_ = s
 	th := ctx.theme
 	_ = skald.image_load_bytes(ctx, FRAME_NAME, FRAME_JPG)
+	_ = skald.image_load_bytes(ctx, IMAGE_NAME, IMAGE_PNG)
 	frame_size, _ := skald.image_size(ctx, FRAME_NAME)
 
 	return skald.col(
@@ -85,10 +88,10 @@ view :: proc(s: State, ctx: ^skald.Ctx(Msg)) -> skald.View {
 			th.font.size_sm,
 		),
 		skald.row(
-			skald.image_background(ctx, FRAME_NAME, panel_content(ctx, ".None", "native pixels"), fit = .None),
-			skald.image_background(ctx, FRAME_NAME, panel_content(ctx, ".Contain", "preserve aspect"), fit = .Contain),
-			skald.image_background(ctx, FRAME_NAME, panel_content(ctx, ".Cover", "explicit crop"), fit = .Cover),
-			skald.image_background(ctx, FRAME_NAME, panel_content(ctx, ".Fill", "explicit stretch"), fit = .Fill),
+			skald.image_background(ctx, IMAGE_NAME, panel_content(ctx, ".None", "native pixels"), fit = .None),
+			skald.image_background(ctx, IMAGE_NAME, panel_content(ctx, ".Contain", "preserve aspect"), fit = .Contain),
+			skald.image_background(ctx, IMAGE_NAME, panel_content(ctx, ".Cover", "explicit crop"), fit = .Cover),
+			skald.image_background(ctx, IMAGE_NAME, panel_content(ctx, ".Fill", "explicit stretch"), fit = .Fill),
 			spacing = th.spacing.md,
 		),
 		skald.row(

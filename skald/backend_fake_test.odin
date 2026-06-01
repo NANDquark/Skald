@@ -676,3 +676,48 @@ press_inside_overlay_keeps_focused_owner :: proc(t: ^testing.T) {
 
 	testing.expect_value(t, ws.focused_id, id)
 }
+
+@(test)
+public_image_helpers_use_render_context :: proc(t: ^testing.T) {
+	fake := Fake_Backend_State{image_native_size = {64, 48}}
+	backend := fake_backend(&fake)
+	rc := render_context_from_backend(&backend)
+	ctx := Ctx(int){render = &rc}
+
+	testing.expect_value(t, image_load_bytes(&ctx, "app://frame", []byte{1, 2, 3}), true)
+	size, ok := image_size(&ctx, "app://frame")
+	testing.expect_value(t, ok, true)
+	testing.expect_value(t, size, [2]f32{64, 48})
+}
+
+@(test)
+image_background_intrinsic_size_matches_child :: proc(t: ^testing.T) {
+	fake: Fake_Backend_State
+	backend := fake_backend(&fake)
+	rc := render_context_from_backend(&backend)
+	ctx := Ctx(int){render = &rc}
+
+	v := image_background(&ctx, "app://paper", rect({20, 10}, rgb(0xFFFFFF)))
+	testing.expect_value(t, view_size(&rc, v), [2]f32{20, 10})
+}
+
+@(test)
+nine_slice_intrinsic_size_adds_asymmetric_decoration_extents :: proc(t: ^testing.T) {
+	fake: Fake_Backend_State
+	backend := fake_backend(&fake)
+	rc := render_context_from_backend(&backend)
+	ctx := Ctx(int){render = &rc}
+
+	slice := Nine_Slice{
+		top_left     = {0, 0, 3, 5},
+		top          = {3, 0, 4, 7},
+		top_right    = {7, 0, 8, 4},
+		left         = {0, 5, 6, 3},
+		right        = {9, 4, 2, 9},
+		bottom_left  = {0, 8, 4, 10},
+		bottom       = {4, 9, 3, 2},
+		bottom_right = {7, 9, 5, 6},
+	}
+	v := nine_slice_background(&ctx, "app://frame", slice, rect({20, 10}, rgb(0xFFFFFF)))
+	testing.expect_value(t, view_size(&rc, v), [2]f32{34, 27})
+}

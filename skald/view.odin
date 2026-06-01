@@ -108,6 +108,8 @@ View :: union {
 	View_Zone,
 	View_Dialog,
 	View_Image,
+	View_Image_Background,
+	View_Nine_Slice_Background,
 	View_Split,
 	View_Link,
 	View_Toast,
@@ -646,6 +648,45 @@ View_Image :: struct {
 	size:  [2]f32,
 	fit:   Image_Fit,
 	tint:  Color,
+}
+
+Nine_Slice :: struct {
+	top_left:     Rect,
+	top:          Rect,
+	top_right:    Rect,
+	left:         Rect,
+	center:       Rect,
+	right:        Rect,
+	bottom_left:  Rect,
+	bottom:       Rect,
+	bottom_right: Rect,
+}
+
+Nine_Slice_Extents :: struct {
+	left, top, right, bottom: f32,
+}
+
+nine_slice_extents :: proc(slice: Nine_Slice) -> Nine_Slice_Extents {
+	return {
+		left   = max(slice.top_left.w, max(slice.left.w, slice.bottom_left.w)),
+		top    = max(slice.top_left.h, max(slice.top.h, slice.top_right.h)),
+		right  = max(slice.top_right.w, max(slice.right.w, slice.bottom_right.w)),
+		bottom = max(slice.bottom_left.h, max(slice.bottom.h, slice.bottom_right.h)),
+	}
+}
+
+View_Image_Background :: struct {
+	path:  string,
+	fit:   Image_Fit,
+	tint:  Color,
+	child: ^View,
+}
+
+View_Nine_Slice_Background :: struct {
+	path:  string,
+	slice: Nine_Slice,
+	tint:  Color,
+	child: ^View,
 }
 
 // View_Split is a two-pane container with a draggable divider between
@@ -9614,6 +9655,44 @@ image :: proc(
 		fit  = fit,
 		tint = tint,
 	}
+}
+
+image_load_bytes :: proc(ctx: ^Ctx($Msg), name: string, bytes: []byte) -> bool {
+	if ctx == nil || ctx.render == nil {return false}
+	return rawptr(image_load_bytes_ctx(ctx.render, name, bytes)) != nil
+}
+
+image_size :: proc(ctx: ^Ctx($Msg), path: string) -> (size: [2]f32, ok: bool) {
+	if ctx == nil || ctx.render == nil {return {}, false}
+	image := image_load_path_ctx(ctx.render, path)
+	if rawptr(image) == nil {return {}, false}
+	return image_size_ctx(ctx.render, image)
+}
+
+image_background :: proc(
+	ctx:   ^Ctx($Msg),
+	path:  string,
+	child: View,
+	fit:   Image_Fit = .None,
+	tint:  Color = {1, 1, 1, 1},
+) -> View {
+	_ = ctx
+	c := new(View, context.temp_allocator)
+	c^ = child
+	return View_Image_Background{path = path, fit = fit, tint = tint, child = c}
+}
+
+nine_slice_background :: proc(
+	ctx:   ^Ctx($Msg),
+	path:  string,
+	slice: Nine_Slice,
+	child: View,
+	tint:  Color = {1, 1, 1, 1},
+) -> View {
+	_ = ctx
+	c := new(View, context.temp_allocator)
+	c^ = child
+	return View_Nine_Slice_Background{path = path, slice = slice, tint = tint, child = c}
 }
 
 // split is a two-pane container with a draggable divider. `first_size`

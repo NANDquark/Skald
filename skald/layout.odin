@@ -83,6 +83,14 @@ view_height_for_width :: proc(r: ^Render_Context, v: View, width: f32) -> f32 {
 
 	case View_Zone:
 		return view_height_for_width(r, vv.child^, width)
+
+	case View_Image_Background:
+		return view_height_for_width(r, vv.child^, width)
+
+	case View_Nine_Slice_Background:
+		ext := nine_slice_extents(vv.slice)
+		child_w := max(width - ext.left - ext.right, 0)
+		return ext.top + view_height_for_width(r, vv.child^, child_w) + ext.bottom
 	}
 	return view_size(r, v).y
 }
@@ -289,6 +297,14 @@ view_size :: proc(r: ^Render_Context, v: View) -> [2]f32 {
 		// convention as View_Rect and View_Stack) — useful for e.g. a
 		// hero image that should stretch to the column's width.
 		return vv.size
+
+	case View_Image_Background:
+		return view_size(r, vv.child^)
+
+	case View_Nine_Slice_Background:
+		ext := nine_slice_extents(vv.slice)
+		child := view_size(r, vv.child^)
+		return {child.x + ext.left + ext.right, child.y + ext.top + ext.bottom}
 
 	case View_Split:
 		// Split has no intrinsic size — it's designed to be used with
@@ -1513,6 +1529,12 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 			return
 		}
 		draw_image_fit_ctx(r, img, box, vv.fit, vv.tint)
+
+	case View_Image_Background:
+		// Rendering belongs to Task 3.
+
+	case View_Nine_Slice_Background:
+		// Rendering belongs to Task 3.
 
 	case View_Split:
 		// Record the container rect so next frame's builder can hit-

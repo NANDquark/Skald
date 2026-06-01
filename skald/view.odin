@@ -666,12 +666,26 @@ Nine_Slice_Extents :: struct {
 	left, top, right, bottom: f32,
 }
 
+@(private)
+nine_slice_region_size :: proc(region: Rect) -> [2]f32 {
+	if region.w == 0 || region.h == 0 {return {}}
+	return {region.w, region.h}
+}
+
 nine_slice_extents :: proc(slice: Nine_Slice) -> Nine_Slice_Extents {
+	top_left := nine_slice_region_size(slice.top_left)
+	top := nine_slice_region_size(slice.top)
+	top_right := nine_slice_region_size(slice.top_right)
+	left := nine_slice_region_size(slice.left)
+	right := nine_slice_region_size(slice.right)
+	bottom_left := nine_slice_region_size(slice.bottom_left)
+	bottom := nine_slice_region_size(slice.bottom)
+	bottom_right := nine_slice_region_size(slice.bottom_right)
 	return {
-		left   = max(slice.top_left.w, max(slice.left.w, slice.bottom_left.w)),
-		top    = max(slice.top_left.h, max(slice.top.h, slice.top_right.h)),
-		right  = max(slice.top_right.w, max(slice.right.w, slice.bottom_right.w)),
-		bottom = max(slice.bottom_left.h, max(slice.bottom.h, slice.bottom_right.h)),
+		left   = max(top_left.x, max(left.x, bottom_left.x)),
+		top    = max(top_left.y, max(top.y, top_right.y)),
+		right  = max(top_right.x, max(right.x, bottom_right.x)),
+		bottom = max(bottom_left.y, max(bottom.y, bottom_right.y)),
 	}
 }
 

@@ -721,3 +721,19 @@ nine_slice_intrinsic_size_adds_asymmetric_decoration_extents :: proc(t: ^testing
 	v := nine_slice_background(&ctx, "app://frame", slice, rect({20, 10}, rgb(0xFFFFFF)))
 	testing.expect_value(t, view_size(&rc, v), [2]f32{34, 27})
 }
+
+@(test)
+nine_slice_extents_ignore_regions_with_an_empty_axis :: proc(t: ^testing.T) {
+	slice := Nine_Slice{
+		top_left     = {0, 0, 0, 5},
+		top          = {0, 0, 4, 0},
+		top_right    = {0, 0, 8, 0},
+		left         = {0, 0, 0, 6},
+		right        = {0, 0, 0, 9},
+		bottom_left  = {0, 0, 7, 0},
+		bottom       = {0, 0, 0, 11},
+		bottom_right = {0, 0, 12, 0},
+	}
+
+	testing.expect_value(t, nine_slice_extents(slice), Nine_Slice_Extents{})
+}

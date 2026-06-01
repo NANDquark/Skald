@@ -99,15 +99,23 @@ Backend_Text :: struct {
 
 Backend_Images :: struct {
 	load_path:     proc(state: rawptr, path: string) -> Backend_Image,
+	load_bytes:    proc(state: rawptr, name: string, bytes: []byte) -> Backend_Image,
 	load_pixels:   proc(state: rawptr, name: string, w, h: u32, rgba: []u8) -> Backend_Image,
 	update_pixels: proc(state: rawptr, image: Backend_Image, w, h: u32, rgba: []u8) -> bool,
 	unload:        proc(state: rawptr, image: Backend_Image),
+	size:          proc(state: rawptr, image: Backend_Image) -> (size: [2]f32, ok: bool),
 	draw:          proc(state: rawptr, image: Backend_Image, rect: Rect, tint: Color),
 	draw_fit:      proc(
 		state: rawptr,
 		image: Backend_Image,
 		rect: Rect,
 		fit: Image_Fit,
+		tint: Color,
+	) -> bool,
+	draw_region: proc(
+		state: rawptr,
+		image: Backend_Image,
+		src, dst: Rect,
 		tint: Color,
 	) -> bool,
 }

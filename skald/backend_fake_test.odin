@@ -13,6 +13,7 @@ Fake_Draw_Kind :: enum {
 Fake_Draw_Op :: struct {
 	kind:   Fake_Draw_Kind,
 	rect:   Rect,
+	src:    Rect,
 	color:  Color,
 	radius: f32,
 	alpha:  f32,
@@ -21,13 +22,15 @@ Fake_Draw_Op :: struct {
 }
 
 Fake_Backend_State :: struct {
-	ops:             [dynamic]Fake_Draw_Op,
-	image_load_path: string,
-	image_load_name: string,
-	image_w:         u32,
-	image_h:         u32,
-	image_rgba_len:  int,
-	image_updated:   bool,
+	ops:               [dynamic]Fake_Draw_Op,
+	image_load_path:   string,
+	image_load_name:   string,
+	image_w:           u32,
+	image_h:           u32,
+	image_rgba_len:    int,
+	image_encoded_len: int,
+	image_native_size: [2]f32,
+	image_updated:     bool,
 }
 
 fake_draw_rect :: proc(state: rawptr, rect: Rect, color: Color, radius: f32) {
@@ -61,6 +64,14 @@ fake_image_load_path :: proc(state: rawptr, path: string) -> Backend_Image {
 	return Backend_Image(state)
 }
 
+fake_image_load_bytes :: proc(state: rawptr, name: string, bytes: []byte) -> Backend_Image {
+	s := (^Fake_Backend_State)(state)
+	s.image_load_name = name
+	s.image_encoded_len = len(bytes)
+	if len(name) == 0 || len(bytes) == 0 {return Backend_Image(nil)}
+	return Backend_Image(state)
+}
+
 fake_image_load_pixels :: proc(
 	state: rawptr,
 	name: string,
@@ -91,6 +102,11 @@ fake_image_update_pixels :: proc(
 
 fake_image_unload :: proc(state: rawptr, image: Backend_Image) {}
 
+fake_image_size :: proc(state: rawptr, image: Backend_Image) -> (size: [2]f32, ok: bool) {
+	s := (^Fake_Backend_State)(state)
+	return s.image_native_size, rawptr(image) != nil
+}
+
 fake_image_draw :: proc(state: rawptr, image: Backend_Image, rect: Rect, tint: Color) {
 	s := (^Fake_Backend_State)(state)
 	append(
@@ -114,6 +130,17 @@ fake_image_draw_fit :: proc(
 	return rawptr(image) != nil
 }
 
+fake_image_draw_region :: proc(
+	state: rawptr,
+	image: Backend_Image,
+	src, dst: Rect,
+	tint: Color,
+) -> bool {
+	s := (^Fake_Backend_State)(state)
+	append(&s.ops, Fake_Draw_Op{kind = .Image, src = src, rect = dst, color = tint, image = image})
+	return rawptr(image) != nil
+}
+
 fake_backend :: proc(state: ^Fake_Backend_State) -> Backend {
 	return Backend {
 		state = state,
@@ -125,11 +152,14 @@ fake_backend :: proc(state: ^Fake_Backend_State) -> Backend {
 		},
 		images = Backend_Images {
 			load_path = fake_image_load_path,
+			load_bytes = fake_image_load_bytes,
 			load_pixels = fake_image_load_pixels,
 			update_pixels = fake_image_update_pixels,
 			unload = fake_image_unload,
+			size = fake_image_size,
 			draw = fake_image_draw,
 			draw_fit = fake_image_draw_fit,
+			draw_region = fake_image_draw_region,
 		},
 	}
 }
@@ -219,6 +249,58 @@ image_context_helpers_dispatch_to_backend :: proc(t: ^testing.T) {
 	testing.expect_value(t, fake.ops[0].fit, Image_Fit.Cover)
 
 	image_unload_ctx(&rc, img)
+}
+
+@(test)
+extended_image_context_helpers_dispatch_to_backend :: proc(t: ^testing.T) {
+	fake := Fake_Backend_State{image_native_size = {64, 48}}
+	defer delete(fake.ops)
+
+	backend := fake_backend(&fake)
+	rc := render_context_from_backend(&backend)
+	bytes := []byte{1, 2, 3, 4}
+
+	img := image_load_bytes_ctx(&rc, "app://frame", bytes)
+	testing.expect(t, rawptr(img) != nil)
+	testing.expect_value(t, fake.image_load_name, "app://frame")
+	testing.expect_value(t, fake.image_encoded_len, 4)
+
+	size, ok := image_size_ctx(&rc, img)
+	testing.expect_value(t, ok, true)
+	testing.expect_value(t, size, [2]f32{64, 48})
+
+	drawn := draw_image_region_ctx(
+		&rc,
+		img,
+		Rect{1, 2, 3, 4},
+		Rect{10, 20, 30, 40},
+		rgba(0x80FFFFFF),
+	)
+	testing.expect_value(t, drawn, true)
+	if !testing.expect_value(t, len(fake.ops), 1) {return}
+	testing.expect_value(t, fake.ops[0].src, Rect{1, 2, 3, 4})
+	testing.expect_value(t, fake.ops[0].rect, Rect{10, 20, 30, 40})
+	testing.expect_value(t, fake.ops[0].color, rgba(0x80FFFFFF))
+}
+
+@(test)
+optional_image_context_helpers_fail_without_backend_callbacks :: proc(t: ^testing.T) {
+	fake: Fake_Backend_State
+	backend := fake_backend(&fake)
+	backend.images.load_bytes = nil
+	backend.images.size = nil
+	backend.images.draw_region = nil
+	rc := render_context_from_backend(&backend)
+
+	img := Backend_Image(rawptr(&fake))
+	testing.expect(t, rawptr(image_load_bytes_ctx(&rc, "app://missing", []byte{1})) == nil)
+	_, size_ok := image_size_ctx(&rc, img)
+	testing.expect_value(t, size_ok, false)
+	testing.expect_value(
+		t,
+		draw_image_region_ctx(&rc, img, Rect{0, 0, 1, 1}, Rect{0, 0, 1, 1}),
+		false,
+	)
 }
 
 @(test)

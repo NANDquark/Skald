@@ -605,6 +605,20 @@ image_load_path_ctx :: proc(r: ^Render_Context, path: string) -> Backend_Image {
 	return r.backend.images.load_path(r.backend.state, path)
 }
 
+image_load_bytes_ctx :: proc(r: ^Render_Context, name: string, bytes: []byte) -> Backend_Image {
+	if r == nil || r.backend == nil || r.backend.images.load_bytes == nil {
+		return Backend_Image(nil)
+	}
+	return r.backend.images.load_bytes(r.backend.state, name, bytes)
+}
+
+image_size_ctx :: proc(r: ^Render_Context, image: Backend_Image) -> (size: [2]f32, ok: bool) {
+	if r == nil || r.backend == nil || r.backend.images.size == nil || rawptr(image) == nil {
+		return {}, false
+	}
+	return r.backend.images.size(r.backend.state, image)
+}
+
 image_load_pixels_ctx :: proc(
 	r: ^Render_Context,
 	name: string,
@@ -668,6 +682,18 @@ draw_image_fit_ctx :: proc(
 		"draw_image_fit_ctx requires images.draw_fit callback",
 	)
 	return r.backend.images.draw_fit(r.backend.state, image, rect, fit, tint)
+}
+
+draw_image_region_ctx :: proc(
+	r: ^Render_Context,
+	image: Backend_Image,
+	src, dst: Rect,
+	tint: Color = Color{1, 1, 1, 1},
+) -> bool {
+	if r == nil || r.backend == nil || r.backend.images.draw_region == nil || rawptr(image) == nil {
+		return false
+	}
+	return r.backend.images.draw_region(r.backend.state, image, src, dst, tint)
 }
 
 // image_unload drops a registered image, releasing its GPU resources.

@@ -902,3 +902,26 @@ nine_slice_background_allows_corner_only_frames :: proc(t: ^testing.T) {
 	testing.expect_value(t, fake.ops[2].src, Rect{4, 5, 6, 7})
 	testing.expect_value(t, fake.ops[2].rect, Rect{34, 53, 6, 7})
 }
+
+@(test)
+nine_slice_background_empty_corner_does_not_consume_border_span :: proc(t: ^testing.T) {
+	fake := Fake_Backend_State{image_native_size = {16, 16}}
+	defer delete(fake.ops)
+	backend := fake_backend(&fake)
+	rc := render_context_from_backend(&backend)
+	ctx := Ctx(int){render = &rc}
+
+	slice := Nine_Slice{
+		top_left  = {0, 0, 5, 0},
+		top       = {0, 0, 3, 2},
+		top_right = {0, 0, 4, 0},
+	}
+	v := nine_slice_background(&ctx, "app://empty-corners", slice, spacer(0))
+	render_view(&rc, v, {0, 0}, {8, 4})
+
+	if !testing.expect_value(t, len(fake.ops), 5) {return}
+	testing.expect_value(t, fake.ops[1].src, Rect{0, 0, 3, 2})
+	testing.expect_value(t, fake.ops[1].rect, Rect{0, 0, 3, 2})
+	testing.expect_value(t, fake.ops[3].src, Rect{0, 0, 2, 2})
+	testing.expect_value(t, fake.ops[3].rect, Rect{6, 0, 2, 2})
+}

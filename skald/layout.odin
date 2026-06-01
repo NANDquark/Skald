@@ -1919,6 +1919,10 @@ draw_nine_slice_background :: proc(
 	}
 
 	ext := nine_slice_extents(slice)
+	top_left := nine_slice_region_size(slice.top_left)
+	top_right := nine_slice_region_size(slice.top_right)
+	bottom_left := nine_slice_region_size(slice.bottom_left)
+	bottom_right := nine_slice_region_size(slice.bottom_right)
 	inner := Rect{
 		bounds.x + ext.left,
 		bounds.y + ext.top,
@@ -1939,10 +1943,10 @@ draw_nine_slice_background :: proc(
 		if !draw_image_region_ctx(r, image, slice.bottom_right, Rect{bounds.x + bounds.w - slice.bottom_right.w, bounds.y + bounds.h - slice.bottom_right.h, slice.bottom_right.w, slice.bottom_right.h}, tint) {return false}
 	}
 
-	if !draw_image_region_tiled_x(r, image, slice.top, Rect{bounds.x + slice.top_left.w, bounds.y, max(bounds.w - slice.top_left.w - slice.top_right.w, 0), slice.top.h}, tint) {return false}
-	if !draw_image_region_tiled_x(r, image, slice.bottom, Rect{bounds.x + slice.bottom_left.w, bounds.y + bounds.h - slice.bottom.h, max(bounds.w - slice.bottom_left.w - slice.bottom_right.w, 0), slice.bottom.h}, tint) {return false}
-	if !draw_image_region_tiled_y(r, image, slice.left, Rect{bounds.x, bounds.y + slice.top_left.h, slice.left.w, max(bounds.h - slice.top_left.h - slice.bottom_left.h, 0)}, tint) {return false}
-	if !draw_image_region_tiled_y(r, image, slice.right, Rect{bounds.x + bounds.w - slice.right.w, bounds.y + slice.top_right.h, slice.right.w, max(bounds.h - slice.top_right.h - slice.bottom_right.h, 0)}, tint) {return false}
+	if !draw_image_region_tiled_x(r, image, slice.top, Rect{bounds.x + top_left.x, bounds.y, max(bounds.w - top_left.x - top_right.x, 0), slice.top.h}, tint) {return false}
+	if !draw_image_region_tiled_x(r, image, slice.bottom, Rect{bounds.x + bottom_left.x, bounds.y + bounds.h - slice.bottom.h, max(bounds.w - bottom_left.x - bottom_right.x, 0), slice.bottom.h}, tint) {return false}
+	if !draw_image_region_tiled_y(r, image, slice.left, Rect{bounds.x, bounds.y + top_left.y, slice.left.w, max(bounds.h - top_left.y - bottom_left.y, 0)}, tint) {return false}
+	if !draw_image_region_tiled_y(r, image, slice.right, Rect{bounds.x + bounds.w - slice.right.w, bounds.y + top_right.y, slice.right.w, max(bounds.h - top_right.y - bottom_right.y, 0)}, tint) {return false}
 	if !draw_image_region_tiled_xy(r, image, slice.center, inner, tint) {return false}
 	return true
 }

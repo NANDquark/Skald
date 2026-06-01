@@ -38,6 +38,34 @@ k2_image_load_path :: proc(state: rawptr, path: string) -> skald.Backend_Image {
 	return skald.Backend_Image(entry)
 }
 
+k2_image_load_bytes :: proc(state: rawptr, name: string, bytes: []byte) -> skald.Backend_Image {
+	if len(name) == 0 || len(bytes) == 0 {return skald.Backend_Image(nil)}
+	s := (^Backend_State)(state)
+	if s.images == nil {
+		s.images = make(map[string]^Image_Entry)
+	}
+	if entry, ok := s.images[name]; ok && entry != nil {
+		if entry.alive {return skald.Backend_Image(entry)}
+		texture := k2.load_texture_from_bytes(bytes)
+		if texture.handle == k2.TEXTURE_NONE {return skald.Backend_Image(nil)}
+		entry.texture = texture
+		entry.alive = true
+		return skald.Backend_Image(entry)
+	}
+
+	texture := k2.load_texture_from_bytes(bytes)
+	if texture.handle == k2.TEXTURE_NONE {return skald.Backend_Image(nil)}
+	key := strings.clone(name)
+	entry := new(Image_Entry)
+	entry^ = Image_Entry {
+		key     = key,
+		texture = texture,
+		alive   = true,
+	}
+	s.images[key] = entry
+	return skald.Backend_Image(entry)
+}
+
 k2_image_load_pixels :: proc(
 	state: rawptr,
 	name: string,
@@ -133,6 +161,29 @@ k2_image_draw_fit :: proc(
 	push_clip(state, rect)
 	k2.draw_texture_fit(entry.texture, src, dest, tint = to_k2_color(tint))
 	pop_clip(state)
+	return true
+}
+
+k2_image_size :: proc(state: rawptr, image: skald.Backend_Image) -> (size: [2]f32, ok: bool) {
+	entry := (^Image_Entry)(rawptr(image))
+	if entry == nil || !entry.alive || entry.texture.handle == k2.TEXTURE_NONE {
+		return {}, false
+	}
+	return {f32(entry.texture.width), f32(entry.texture.height)}, true
+}
+
+k2_image_draw_region :: proc(
+	state: rawptr,
+	image: skald.Backend_Image,
+	src, dst: skald.Rect,
+	tint: skald.Color,
+) -> bool {
+	entry := (^Image_Entry)(rawptr(image))
+	if entry == nil || !entry.alive || entry.texture.handle == k2.TEXTURE_NONE {
+		return false
+	}
+	s := (^Backend_State)(state)
+	k2.draw_texture_fit(entry.texture, to_k2_rect(src), to_k2_rect(dst), tint = to_k2_color(tint, s.alpha))
 	return true
 }
 

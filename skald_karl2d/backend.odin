@@ -53,11 +53,14 @@ backend :: proc(state: ^Backend_State) -> skald.Backend {
 		},
 		images = skald.Backend_Images {
 			load_path = k2_image_load_path,
+			load_bytes = k2_image_load_bytes,
 			load_pixels = k2_image_load_pixels,
 			update_pixels = k2_image_update_pixels,
 			unload = k2_image_unload,
+			size = k2_image_size,
 			draw = k2_image_draw,
 			draw_fit = k2_image_draw_fit,
+			draw_region = k2_image_draw_region,
 		},
 		input = skald.Backend_Input{snapshot = input_snapshot, capture = input_capture},
 		window = skald.Backend_Window {

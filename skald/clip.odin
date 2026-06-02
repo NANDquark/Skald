@@ -23,6 +23,13 @@ renderer_push_clip :: proc(r: ^Renderer, rect: Rect) {
 }
 
 render_context_push_clip :: proc(r: ^Render_Context, rect: Rect) {
+	if r.widgets != nil {
+		new_rect := rect
+		if len(r.widgets.clip_stack) > 0 {
+			new_rect = rect_intersect(r.widgets.clip_stack[len(r.widgets.clip_stack) - 1], rect)
+		}
+		append(&r.widgets.clip_stack, new_rect)
+	}
 	backend_push_clip(r, rect)
 }
 
@@ -47,6 +54,9 @@ renderer_pop_clip :: proc(r: ^Renderer) {
 }
 
 render_context_pop_clip :: proc(r: ^Render_Context) {
+	if r.widgets != nil && len(r.widgets.clip_stack) > 0 {
+		pop(&r.widgets.clip_stack)
+	}
 	backend_pop_clip(r)
 }
 

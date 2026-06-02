@@ -43,6 +43,7 @@ Backend :: struct {
 
 Render_Context :: struct {
 	backend:          ^Backend,
+	renderer:         ^Renderer,
 	frame_size:       [2]u32,
 	widgets:          ^Widget_Store,
 	overlays:         ^[dynamic]Overlay_Entry,
@@ -58,6 +59,7 @@ render_context_from_backend :: proc(backend: ^Backend) -> Render_Context {
 renderer_render_context :: proc(backend: ^Backend, r: ^Renderer) -> Render_Context {
 	assert(r != nil, "renderer_render_context requires renderer")
 	rc := render_context_from_backend(backend)
+	rc.renderer = r
 	rc.frame_size = r.fb_size
 	rc.widgets = r.widgets
 	rc.overlays = &r.overlays

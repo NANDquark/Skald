@@ -15,7 +15,172 @@ bug fixes bump the patch.
   `#load`-embedded assets. Concrete backend support is currently Karl2D-only;
   SDL/Vulkan support remains deferred.
 
+- **`image_is_resident(r, name)`.** Read-only check for whether an image
+  is currently GPU-resident — without loading it or touching LRU order.
+  Lets async-thumbnail apps detect LRU eviction and re-decode off-thread
+  instead of tripping a blocking on-demand decode through `image()`.
+
+- **`table` can reveal an app-driven focus row.** A new `reveal_row`
+  parameter scrolls a row into view when its value *changes* — for
+  typeahead, Backspace-to-parent, or "scroll to selection" where focus
+  moves from outside the table. Change-detected, so a steady value won't
+  fight the user's manual scrolling. In-table keyboard nav already
+  self-reveals, so this is only for app-driven moves. Defaults to `-1`
+  (no-op), so existing callers are unchanged.
+
+- **`table` and `tree` activate on double-click.** Double-clicking a
+  table row fires `on_row_activate`; double-clicking a tree row body
+  fires `on_toggle` (expand/collapse). Matches keyboard activation and
+  file-manager muscle memory; single-click still selects first.
+
+- **`text_input` gains `line_spacing`.** Extra leading between visual
+  lines (multiline only; `0` = font default). Feeds the per-line stride
+  consistently, so content height, the scrollbar thumb, click
+  hit-testing and caret-follow all stay in agreement when scrolled.
+  Additive — defaults to `0`, so existing fields are unchanged.
+
+- **`text` gains an overflow mode.** `overflow: Text_Overflow` —
+  `.Visible` (default, today's behaviour), `.Clip` (hard-clip to the
+  slot), or `.Ellipsis` (truncate and append `…`). Only bites when layout
+  assigns the node less width than its content needs — so a `.Stretch`
+  parent or fixed-width box elides while a `.Start`/`.End`/`.Center`
+  parent is unaffected. Paired helper `text_fits(r, str, width, size,
+  font)` reports whether a string fits, so apps can show a full-text
+  tooltip only on truncated rows.
+
+- **`tabs` can be closed by middle-click.** New `tabs_closable` builder
+  takes `on_close(index)`, fired on a middle-click of a tab — the
+  universal "close tab" gesture. Plain `tabs` is unchanged; the close
+  callback rides a separate builder so the polymorphic-`Msg` signature
+  stays sound.
+
+- **`table` columns can elide overflowing text.** New
+  `Table_Column.ellipsis` truncates over-long cell content to the column
+  width with a trailing `…` instead of letting it spill into the next
+  column. The table stretches the column's cells (so the text is actually
+  width-constrained) and auto-sets `.Ellipsis` on a bare `text` cell, so
+  marking the column is usually all that's needed — flex columns re-elide
+  as they resize. Opt-in; other columns are unchanged. Ellipsis columns
+  render left-aligned.
+
+- **`opacity(factor, child)`.** Fades a whole subtree by multiplying the
+  alpha of every draw it emits. Layout pass-through (measures and positions
+  exactly as the child) and input-transparent (the faded region still
+  hit-tests), so it's the way to dim an inactive pane, ghost a drag
+  preview, or fade a disabled region. Nests multiplicatively and is
+  theme-agnostic. Put it *inside* a flex, not around one, like the other
+  wrappers.
+
+- **`text` gains horizontal `align`.** `align: Cross_Align = .Start`
+  places the (possibly-elided) single line within its assigned width,
+  mirroring `button.text_align`. Lets a label be centred *and* ellipsised
+  at once — previously mutually exclusive, since eliding needs a stretched
+  width (left-drawn) and centring needs a content-sized slot. No-op unless
+  the node is wider than its content; defaults to `.Start`.
+
 ### Fixed
+
+- **Multiline `text_input` hit-testing ignored `line_spacing`.** Click-press
+  resolved the cursor line by dividing mouse-y by the per-line stride
+  (`line_h + line_spacing`), but click-drag — and the public
+  `text_input_offset_at` / `text_input_offset_rect` accessors — divided by
+  bare `line_h`. With spacing on, the held-button frame overshot and flung
+  the selection several lines down, and the offset accessors mis-resolved
+  the line (so spell-check / marks hit-tests landed on the wrong row). All
+  paths now share the stride. Reported against a "Loose"-spaced markdown
+  editor.
+
+- **Fill-mode `table` / `virtual_list` with an empty `State`.** The state
+  snapshot ran `new`/copy on a zero-size pointee (`State = struct{}`),
+  which faulted under AddressSanitizer and snapshotted a degenerate
+  pointer. Guarded with `size_of(Elem) > 0` — a zero-size state has
+  nothing to copy.
+
+- **`context_menu` no longer blanks a self-sizing child while open.**
+  Wrapping a fill-mode `table`/`grid` (or anything via `sized()`) in
+  `context_menu` collapsed the child to zero height the moment the menu
+  opened: the open-state `col` offered it only its intrinsic min. The
+  child now keeps the same layout role open or closed (`flex(1, …)` so it
+  receives the full offered height), so the listing stays put under the
+  menu.
+
+- **Widgets scrolled out of view are no longer clickable.** Hit-testing
+  ignored scroll clipping: a widget clipped away by its container's
+  viewport (a table's overscan rows, a button scrolled past a scroll's
+  edge) kept a live click target where it was no longer drawn — so
+  clicking the empty strip just above a scrolled table could select an
+  off-screen row. Every widget now records the clip rect it rendered
+  under, and `widget_hovered` rejects a hover that falls outside it.
+  `last_rect` is unchanged, so popover anchoring and other geometry are
+  unaffected.
+
+- **`text_input` clipping leaks closed too.** Its `×` clear button, the
+  multiline scrollbar, and wheel-to-scroll hit-tested the field's full
+  rect directly rather than through `widget_hovered`, so a field scrolled
+  out of a container's viewport could be cleared or scrolled by clicking
+  the empty space where it was no longer drawn. All three now gate on the
+  field's clip rect.
+
+## 1.0.0-rc10 — 2026-05-30
+
+O(n) text wrapping across `text_input`, `text`, and `rich_text` (a 1200-word
+field went from ~300 ms to ~5 ms per keystroke), `text_input` decorations +
+screen↔byte mapping, and a batch of input/safety fixes — widget id namespace
+hardening (#4), focus release on outside clicks (#3), modal/popover
+click-through, runa fuzzing hardening, and long-token wrapping. No breaking
+changes.
+
+### Added
+
+- **`text_input` decorations + screen↔byte mapping.** A new `marks: []Text_Mark`
+  parameter draws decorations over caller-supplied byte ranges —
+  `Squiggle` (spell-check), `Underline`, and `Highlight` — reusing the
+  per-visual-line selection geometry, so wrapping / clipping / scroll come
+  free. `nil` is byte-identical to before. Paired with two accessors,
+  `text_input_offset_at(pos) -> offset` and `text_input_offset_rect(offset)
+  -> rect`, for mapping clicks to bytes and anchoring popovers under a word.
+  Drives spell-check squiggles + a fix menu today; the same primitive backs
+  editor diagnostics, go-to, and annotations. `Mark_Style` is an enum, so new
+  styles stay additive.
+
+### Fixed
+
+- **Multiline `text_input` wraps in O(n), not O(n²).** Editing a large
+  document (~1000+ words) was laggy: the wrap pass re-measured a growing
+  prefix once per rune per line, so cost scaled quadratically and thrashed
+  the text-shape cache. Each logical line is now shaped once into a
+  cumulative-advance table, and the wrapped result is memoized across frames
+  (rebuilt only when the text, width, or font changes). A 1200-word field
+  went from ~300 ms to ~5 ms per keystroke, and ~0.05 ms on an idle repaint.
+
+- **Wrapped `text_input` no longer hangs on a too-narrow field.** A multiline
+  field whose wrap width was smaller than a single multi-byte glyph (emoji /
+  CJK / accented) at the line start spun emitting empty lines until it ran the
+  process out of memory. The hard-break now always advances by at least that
+  one rune. (Latent since the long-token wrap landed; surfaced by fuzzing.)
+
+- **Static `text()` / `rich_text()` wrapping is O(n) too.** `wrap_text` was
+  re-measuring a growing line prefix once per word, and `wrap_rich_text`
+  shaped every word separately — both now shape each paragraph/span once
+  into a cumulative-advance table and read break widths by subtraction
+  (wrap behaviour, including the long-token rune hard-break, is unchanged).
+  A large prose/markdown block wraps in a few ms instead of tens of ms; the
+  per-frame wrap cache still dedupes the layout+render double-walk.
+
+- **Widget id namespace hardening.** Every resolved widget id — auto,
+  `hash_id`, sub-id, and raw `Widget_ID(n)` — now lives in one explicit
+  namespace, so `widget_resolve_id` is idempotent. Wrapper widgets
+  (`chat_input`, `search_field`, …) resolve an id and pass it to an inner
+  builder that resolves it again; previously an auto-id picked up a stray
+  high bit on the second pass and desynced the two, so `chat_input` without
+  an explicit `id` never saw focus and `on_submit` never fired (#4, thanks
+  @quonic). A raw small-int `id` also no longer aliases a positional auto-id.
+
+- **Focusable widgets release focus on an outside click.** Clicking a button,
+  checkbox, radio, toggle (or the table's keyboard row-nav) and then clicking
+  away left it focused, so a later Space/Enter still activated it. A left-press
+  outside the focused widget now clears focus — clicks inside an open popover or
+  on a modal scrim are excepted. (#3, thanks @NANDquark)
 
 - **Text-engine hardening (runa).** Fixed two issues found by fuzzing the
   bundled text engine under AddressSanitizer/MemorySanitizer: (1) a

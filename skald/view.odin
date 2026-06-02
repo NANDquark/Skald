@@ -2,6 +2,7 @@ package skald
 
 import "base:intrinsics"
 import "core:fmt"
+import "core:hash"
 import "core:os"
 import "core:strconv"
 import "core:strings"
@@ -117,6 +118,7 @@ View :: union {
 	View_Canvas,
 	View_Spinner,
 	View_Rich_Text,
+	View_Opacity,
 }
 
 // Stack_Direction picks which axis a Stack lays its children along. Row
@@ -176,12 +178,28 @@ View_Gradient_Rect :: struct {
 // line sized to its content; when >0, the renderer breaks the string at
 // word boundaries so no line exceeds that width, and `view_size` reports
 // the wrapped height. Embedded `\n` also forces line breaks regardless.
+// Text_Overflow controls what a single-line `text` does when layout
+// assigns it less width than its content needs. Only consulted in the
+// no-wrap case (`max_width == 0`); when `max_width > 0` the text wraps
+// as before. Elision is against the *assigned* width, so the text must
+// sit in a width-constraining parent (a `.Stretch` column, a fixed-width
+// box) to be narrowed below its natural size — a `.Start`/`.End`/
+// `.Center` parent hands the child its intrinsic width and just offsets
+// it, so nothing is clipped there.
+Text_Overflow :: enum u8 {
+	Visible,   // draw the full string even if it spills the slot (default; today's behaviour)
+	Clip,      // hard-clip to the assigned width (may cut a glyph)
+	Ellipsis,  // truncate to fit and append "…"
+}
+
 View_Text :: struct {
 	str:       string,
 	color:     Color,
 	size:      f32,
 	font:      Font,
 	max_width: f32,
+	overflow:  Text_Overflow,
+	align:     Cross_Align, // horizontal placement within the assigned width (single-line)
 
 	// Selectable mode (opt-in via the `text` proc group's interactive
 	// form; zero-valued for the static form so existing call sites
@@ -236,6 +254,31 @@ Text_Span :: struct {
 	underline: bool,
 	strike:    bool,
 	link:      string,
+}
+
+// Mark_Style is how a Text_Mark decorates its byte range. Additive: new
+// styles (dotted underline for warnings, an outline box, …) can be added
+// without breaking callers, since `marks` defaults to nil.
+Mark_Style :: enum u8 {
+	Squiggle,  // wavy underline — the spell-check convention
+	Underline, // straight underline
+	Highlight, // translucent fill behind the glyphs
+}
+
+// Text_Mark decorates `value[start:end)` in a `text_input` without
+// affecting layout, the caret, selection, or the edit buffer — purely
+// visual, supplied fresh each frame (immediate mode). Byte offsets are
+// clamped to the buffer; ranges that wrap across visual lines draw one
+// segment per line. A zero `color` ({}) means the theme default: `danger`
+// for Squiggle / Underline, a translucent `primary` for Highlight.
+//
+// Drives spell-check squiggles, search / find-in-page highlights, and
+// (with text_input_offset_at / _offset_rect) editor diagnostics.
+Text_Mark :: struct {
+	start: int,
+	end:   int,
+	style: Mark_Style,
+	color: Color,
 }
 
 // View_Rich_Text carries a list of spans plus the paragraph-level
@@ -319,6 +362,15 @@ View_Clip :: struct {
 	child: ^View,
 }
 
+// View_Opacity fades its child by multiplying the alpha of every draw it
+// emits by `factor`. Layout pass-through (measures and positions exactly
+// as the child) and input-transparent — only the painted alpha changes,
+// so the faded subtree stays fully hit-testable. Nests multiplicatively.
+View_Opacity :: struct {
+	factor: f32,
+	child:  ^View,
+}
+
 // View_Spacer takes up `size` pixels in the parent stack's main axis (the
 // cross axis contribution is zero). Useful for pushing subsequent children
 // away from a preceding block.
@@ -392,12 +444,22 @@ View_Text_Input :: struct {
 	// on-right scrollbar thumb. 0 / 0 on single-line fields.
 	scroll_y:          f32,
 	content_h:         f32,
+	// line_spacing is extra leading (logical px) added *between* visual
+	// lines — the gap is empty space, so glyph-box heights (selection,
+	// caret, marks) stay `line_h`. The renderer's per-line stride is
+	// `line_h + line_spacing`, matching content_h so the scrollbar stays
+	// proportional. 0 on single-line fields.
+	line_spacing:      f32,
 	// visual_lines is the pre-computed display-line table; one entry per
 	// logical line when wrap is off, possibly more when wrap is on. Lives
 	// in the frame arena (context.temp_allocator), so it's only valid for
 	// the render pass immediately following the view build. Nil / empty on
 	// single-line fields.
 	visual_lines:      []Visual_Line,
+	// marks decorate caller-supplied byte ranges (spell-check squiggles,
+	// search highlights, …). Copied into the frame arena by the builder
+	// with colours already resolved to concrete values. Nil = no marks.
+	marks:             []Text_Mark,
 	// invalid flips the field into error state: a persistent border in
 	// `color_border` (which the builder has already set to the danger
 	// accent) regardless of focus. The builder may also pair this with
@@ -954,6 +1016,8 @@ text :: proc(
 	size:      f32  = 14,
 	font:      Font = 0,
 	max_width: f32  = 0,
+	overflow:  Text_Overflow = .Visible,
+	align:     Cross_Align = .Start,
 ) -> View {
 	return View_Text{
 		str       = str,
@@ -961,7 +1025,20 @@ text :: proc(
 		size      = size,
 		font      = font,
 		max_width = max_width,
+		overflow  = overflow,
+		align     = align,
 	}
+}
+
+// text_fits reports whether `str` renders within `width` on one line at
+// the given size/font. Pair it with `overflow = .Ellipsis` to show a
+// full-text `tooltip` only on the rows that were actually truncated,
+// rather than on every row. `width` is the same logical-pixel slot the
+// text is laid out in.
+text_fits :: proc(r: ^Renderer, str: string, width: f32, size: f32 = 14, font: Font = 0) -> bool {
+	if r == nil { return true }
+	w, _ := measure_text(r, str, size, font)
+	return w <= width
 }
 
 // text_selectable is `text`'s input-aware sibling: same render shape,
@@ -3255,6 +3332,19 @@ clip :: proc(size: [2]f32, child: View) -> View {
 	return View_Clip{size = size, child = c}
 }
 
+// opacity fades `child` to `factor` alpha (0 = invisible, 1 = opaque),
+// multiplying through every draw the subtree emits. Layout and input are
+// unchanged — the faded region still lays out and hit-tests normally — so
+// it's the way to dim an inactive pane, ghost a drag preview, or fade a
+// disabled region. Nested opacities multiply. Like the other wrappers,
+// put it *inside* a flex (`flex(1, opacity(...))`), not around one, or the
+// parent stack won't see the flex weight.
+opacity :: proc(factor: f32, child: View) -> View {
+	c := new(View, context.temp_allocator)
+	c^ = child
+	return View_Opacity{factor = factor, child = c}
+}
+
 // flex wraps `child` so it claims a `weight`-proportional share of its
 // parent stack's remaining main-axis space. `weight = 1` is the usual
 // default; `flex(2, ...)` takes twice the share of a sibling `flex(1, ...)`.
@@ -3809,6 +3899,36 @@ button :: proc(
 // and `slider`.
 // _text_input_impl runs the full text-edit machinery and returns the
 // rendered view alongside the post-edit value and a `changed` flag.
+// resolve_click_idx maps a mouse position to a byte index in a multiline
+// text_input. `stride` is the per-visual-line advance (line_h + line_spacing)
+// and MUST match the render path, or press and drag disagree on the line.
+// Single-line is a pure x→byte hit-test; multiline walks the visual lines.
+@(private = "file")
+resolve_click_idx :: proc(
+	renderer: ^Renderer,
+	text: string,
+	vls: []Visual_Line,
+	fs: f32,
+	rel_x: f32,
+	mouse_y, content_y0, stride: f32,
+	multiline: bool,
+	font: Font,
+) -> int {
+	if renderer == nil { return 0 }
+	if !multiline {
+		return byte_index_at_x(renderer, text, fs, font, rel_x)
+	}
+	ry := mouse_y - content_y0
+	line := int(ry / stride)
+	if line < 0 { line = 0 }
+	last := len(vls) - 1
+	if last < 0 { return 0 }
+	if line > last { line = last }
+	vl := vls[line]
+	col_in_line := byte_index_at_x(renderer, text[vl.start:vl.end], fs, font, rel_x)
+	return vl.start + col_in_line
+}
+
 // Public dispatch — turning `changed` into a Msg via the caller's
 // on_change — happens in the proc-group wrappers (`text_input_simple`
 // and `text_input_payload`). Splitting the body lets one impl serve
@@ -3843,6 +3963,15 @@ _text_input_impl :: proc(
 	// unaffected. Apps use this instead of re-implementing the cap in
 	// their on_change handler.
 	max_chars:    int    = 0,
+	// marks decorate caller-supplied byte ranges in `value` (spell-check
+	// squiggles, search highlights). nil = no decorations, byte-identical
+	// to a field without the param. See Text_Mark.
+	marks:        []Text_Mark = nil,
+	// line_spacing adds extra leading between visual lines (multiline
+	// only; ignored single-line). 0 = font-default spacing. Feeds the
+	// per-line stride consistently — render, content height, scrollbar,
+	// click hit-testing and caret-follow all stay in agreement.
+	line_spacing: f32 = 0,
 ) -> (view: View, new_value: string, changed: bool) {
 	th := ctx.theme
 
@@ -3961,7 +4090,11 @@ _text_input_impl :: proc(
 			clear_w + pad.x * 0.5,
 			st.last_rect.h,
 		}
-		clear_hovered = rect_contains_point(cz, ctx.input.mouse_pos)
+		// Gate on the field's clip rect so the × isn't clickable where the
+		// field is scrolled out of a container's viewport — same rule
+		// widget_hovered applies. Zero clip_rect = unclipped = no restriction.
+		clear_hovered = rect_contains_point(cz, ctx.input.mouse_pos) &&
+			(st.clip_rect.w <= 0 || rect_contains_point(st.clip_rect, ctx.input.mouse_pos))
 		if clear_hovered && ctx.input.mouse_pressed[.Left] {
 			new_value      = ""
 			cursor         = 0
@@ -3978,40 +4111,18 @@ _text_input_impl :: proc(
 	click_rel_x := ctx.input.mouse_pos.x - content_x0
 
 	// Multiline clicks pick the target visual line by y-offset first, then
-	// run byte_index_at_x against that line's text. Soft-wrap splits one
-	// logical line into multiple visual lines — the hit-test walks the
-	// visual-line table so clicks land where the glyph actually is.
-	resolve_click_idx :: proc(
-		renderer: ^Renderer,
-		text: string,
-		vls: []Visual_Line,
-		fs: f32,
-		rel_x: f32,
-		mouse_y, content_y0, line_h: f32,
-		multiline: bool,
-		font: Font,
-	) -> int {
-		if renderer == nil { return 0 }
-		if !multiline {
-			return byte_index_at_x(renderer, text, fs, font, rel_x)
-		}
-		ry := mouse_y - content_y0
-		line := int(ry / line_h)
-		if line < 0 { line = 0 }
-		last := len(vls) - 1
-		if last < 0 { return 0 }
-		if line > last { line = last }
-		vl := vls[line]
-		col_in_line := byte_index_at_x(renderer, text[vl.start:vl.end], fs, font, rel_x)
-		return vl.start + col_in_line
-	}
-
 	// Line height: measure once per frame so multiline clicks and caret
 	// motion agree. An empty string still returns the font's line height.
 	line_h: f32 = fs
 	if ctx.render != nil || ctx.renderer != nil {
 		_, line_h = ctx_measure_text(ctx, "Ag", fs, font)
 	}
+	// stride is the line-to-line advance. line_h is the glyph box;
+	// line_spacing is empty leading between boxes. Every vertical
+	// advance (content height, click→line, caret-follow, render)
+	// uses stride so the scrollbar stays proportional; box heights
+	// (selection, caret, marks) keep using line_h.
+	stride := line_h + line_spacing
 	// Multiline scrolls vertically against st.scroll_y. content_y0 is
 	// the y where the first line's glyphs land *after* scrolling — click
 	// hit-testing and caret positioning both go through it.
@@ -4039,7 +4150,15 @@ _text_input_impl :: proc(
 	if width <= 0 && st.last_rect.w == 0 && do_wrap {
 		widget_request_frame_at(ctx, 1)
 	}
-	visual_lines := build_visual_lines(ctx.renderer, new_value, fs, inner_w, do_wrap, font)
+	// Multiline fields cache the wrapped table across frames (memoized on
+	// content + width + font); single-line fields skip the cache — their
+	// table is one entry and the hash isn't worth it.
+	visual_lines: []Visual_Line
+	if multiline {
+		visual_lines = build_visual_lines_cached(&st, ctx.renderer, new_value, fs, inner_w, do_wrap, font)
+	} else {
+		visual_lines = build_visual_lines(ctx.renderer, new_value, fs, inner_w, do_wrap, font)
+	}
 
 	// Password: compute a `•`-per-rune mask used for hit-testing and
 	// (later) rendering. The edit path stays on `new_value` (real bytes);
@@ -4082,10 +4201,13 @@ _text_input_impl :: proc(
 			thumb := Rect{bar_x, thumb_y, bar_w, thumb_h}
 			bar   := Rect{bar_x, bar_y, bar_w, bar_h}
 			mp := ctx.input.mouse_pos
+			// Don't let the inner scrollbar react where the field is clipped
+			// out of an outer viewport.
+			field_vis := st.clip_rect.w <= 0 || rect_contains_point(st.clip_rect, mp)
 
-			sb_hover = rect_contains_point(thumb, mp)
+			sb_hover = field_vis && rect_contains_point(thumb, mp)
 
-			if ctx.input.mouse_pressed[.Left] {
+			if field_vis && ctx.input.mouse_pressed[.Left] {
 				if rect_contains_point(thumb, mp) {
 					st.pressed = true
 					st.drag_anchor = mp.y - thumb_y
@@ -4124,7 +4246,7 @@ _text_input_impl :: proc(
 			focused = true
 			idx := resolve_click_idx(ctx.renderer, disp_text, visual_lines,
 				fs, click_rel_x,
-				ctx.input.mouse_pos.y, content_y0, line_h, multiline, font)
+				ctx.input.mouse_pos.y, content_y0, stride, multiline, font)
 			if password { idx = mask_byte_to_real_byte(new_value, idx) }
 			clicks := ctx.input.mouse_click_count[.Left]
 			// Password mode: double-click would collapse to select-all
@@ -4177,7 +4299,7 @@ _text_input_impl :: proc(
 	if st.mouse_selecting && !sb_captured && ctx.input.mouse_buttons[.Left] && ctx.renderer != nil {
 		cursor = resolve_click_idx(ctx.renderer, disp_text, visual_lines,
 			fs, click_rel_x,
-			ctx.input.mouse_pos.y, content_y0, line_h, multiline, font)
+			ctx.input.mouse_pos.y, content_y0, stride, multiline, font)
 		if password { cursor = mask_byte_to_real_byte(new_value, cursor) }
 	}
 	if ctx.input.mouse_released[.Left] {
@@ -4380,11 +4502,11 @@ _text_input_impl :: proc(
 			if !shift { anchor = cursor }
 		}
 		// Text edits above may have changed new_value; refresh the
-		// visual-line table before any nav key consults it. Cheap to
-		// rebuild — O(runes) with a measure_text per rune — and keeping
-		// one source of truth for lines is worth it.
+		// visual-line table before any nav key consults it. The post-edit
+		// content misses the cache (new hash) and rebuilds once, keeping
+		// one source of truth for lines.
 		if multiline && new_value != value {
-			visual_lines = build_visual_lines(ctx.renderer, new_value, fs, inner_w, do_wrap, font)
+			visual_lines = build_visual_lines_cached(&st, ctx.renderer, new_value, fs, inner_w, do_wrap, font)
 		}
 
 		// Home/End: multiline scopes to the current *visual* line (the
@@ -4492,7 +4614,7 @@ _text_input_impl :: proc(
 	effective_h := h
 	if height <= 0 && st.last_rect.h > 0 { effective_h = st.last_rect.h }
 	viewport_h := effective_h - 2 * pad.y
-	content_h  := f32(len(visual_lines)) * line_h
+	content_h  := f32(len(visual_lines)) * stride
 	if multiline {
 		max_off := content_h - viewport_h
 		if max_off < 0 { max_off = 0 }
@@ -4501,7 +4623,8 @@ _text_input_impl :: proc(
 		// notch ≈ 40 px, SDL wheel units multiplied in. Read from the
 		// current-frame input; caret-driven scroll below runs after so
 		// auto-follow beats an accidental simultaneous wheel.
-		wheeling := rect_contains_point(st.last_rect, ctx.input.mouse_pos)
+		wheeling := rect_contains_point(st.last_rect, ctx.input.mouse_pos) &&
+			(st.clip_rect.w <= 0 || rect_contains_point(st.clip_rect, ctx.input.mouse_pos))
 		if wheeling && ctx.input.scroll.y != 0 {
 			st.scroll_y -= ctx.input.scroll.y * 40
 		}
@@ -4513,7 +4636,7 @@ _text_input_impl :: proc(
 		// the user's wheel scroll.
 		if cursor != cursor_before || new_value != value_before {
 			cur_line := visual_line_of_byte(visual_lines, cursor)
-			caret_top := f32(cur_line) * line_h
+			caret_top := f32(cur_line) * stride
 			caret_bot := caret_top + line_h
 			if caret_top < st.scroll_y            { st.scroll_y = caret_top }
 			if caret_bot > st.scroll_y + viewport_h {
@@ -4531,6 +4654,20 @@ _text_input_impl :: proc(
 
 	st.cursor_pos       = cursor
 	st.selection_anchor = anchor
+
+	// Frame-scoped geometry snapshot for text_input_offset_at / _rect.
+	// `new_value` lives in the frame arena (or is the caller's value), so
+	// these are only valid for queries made during this frame's update;
+	// the accessors gate on last_frame. Real (unmasked) text so offsets
+	// map to byte positions in `value`.
+	st.tg_text      = new_value
+	st.tg_fs        = fs
+	st.tg_font      = font
+	st.tg_pad       = pad
+	st.tg_line_h    = line_h
+	st.tg_stride    = stride
+	st.tg_multiline = multiline
+
 	widget_set(ctx, id, st)
 
 	// Edit dispatch is handled by the proc-group wrappers — they consume
@@ -4558,6 +4695,30 @@ _text_input_impl :: proc(
 		}
 	}
 
+	// Copy marks into the frame arena (the caller's slice may be a stack
+	// temporary — see the view-slice-lifetime rule) and resolve each {}
+	// colour to its theme default by style. Skipped for password fields,
+	// where the displayed bullets don't line up with real byte offsets.
+	out_marks: []Text_Mark = nil
+	if len(marks) > 0 && !password {
+		cp := make([]Text_Mark, len(marks), context.temp_allocator)
+		for m, k in marks {
+			mm := m
+			if mm.color.a == 0 {
+				switch mm.style {
+				case .Squiggle, .Underline:
+					mm.color = th.color.danger
+				case .Highlight:
+					hl := th.color.primary
+					hl.a = 0.25
+					mm.color = hl
+				}
+			}
+			cp[k] = mm
+		}
+		out_marks = cp
+	}
+
 	field := View_Text_Input{
 		id                = id,
 		text              = out_text,
@@ -4583,7 +4744,9 @@ _text_input_impl :: proc(
 		multiline         = multiline,
 		scroll_y          = st.scroll_y,
 		content_h         = content_h,
+		line_spacing      = line_spacing,
 		visual_lines      = out_vls,
+		marks             = out_marks,
 		invalid           = invalid,
 		sb_hover          = sb_hover,
 		sb_dragging       = st.pressed,
@@ -4663,6 +4826,8 @@ text_input_simple :: proc(
 	invalid:      bool   = false,
 	error:        string = "",
 	max_chars:    int    = 0,
+	marks:        []Text_Mark = nil,
+	line_spacing: f32 = 0,
 ) -> View {
 	view, new_value, changed := _text_input_impl(
 		ctx, value,
@@ -4685,6 +4850,8 @@ text_input_simple :: proc(
 		invalid       = invalid,
 		error         = error,
 		max_chars     = max_chars,
+		marks         = marks,
+		line_spacing  = line_spacing,
 	)
 	if changed { send(ctx, on_change(new_value)) }
 	return view
@@ -4720,6 +4887,8 @@ text_input_payload :: proc(
 	invalid:      bool   = false,
 	error:        string = "",
 	max_chars:    int    = 0,
+	marks:        []Text_Mark = nil,
+	line_spacing: f32 = 0,
 ) -> View {
 	view, new_value, changed := _text_input_impl(
 		ctx, value,
@@ -4742,9 +4911,90 @@ text_input_payload :: proc(
 		invalid       = invalid,
 		error         = error,
 		max_chars     = max_chars,
+		marks         = marks,
+		line_spacing  = line_spacing,
 	)
 	if changed { send(ctx, on_change(payload, new_value)) }
 	return view
+}
+
+// text_input_offset_rect returns the screen-space rect of byte `offset`
+// in the text_input identified by `id`: a zero-width caret-like rect
+// (x, line-top, 0, line-height). Use it to anchor a popover under a word,
+// place an inline annotation, draw an LSP diagnostic marker, etc.
+//
+// Call it from `view` — the accessors need `ctx`, which only `view` has
+// (update does not). Read the click off `ctx.input`, call this against the
+// geometry the field rendered LAST frame (a click lands on what's already
+// on screen, so one-frame-old geometry is correct), and `send` the result
+// as a Msg for update to store. Returns ok=false if `id` isn't a text_input
+// that rendered recently, or if there's no renderer. `offset` is clamped.
+text_input_offset_rect :: proc(ctx: ^Ctx($Msg), id: Widget_ID, offset: int) -> (rect: Rect, ok: bool) {
+	st, exists := ctx.widgets.states[id]
+	if !exists || st.kind != .Text_Input { return {}, false }
+	if st.last_frame + 1 < ctx.widgets.frame { return {}, false } // stale geometry
+	r := ctx.renderer
+	if r == nil { return {}, false }
+
+	text := st.tg_text
+	off  := clamp(offset, 0, len(text))
+	ix   := st.last_rect.x + st.tg_pad.x
+	iy   := st.last_rect.y + st.tg_pad.y
+	lh   := st.tg_line_h
+
+	if st.tg_multiline {
+		if st.vline_cache == nil || len(st.vline_cache.lines) == 0 { return {}, false }
+		vls := st.vline_cache.lines[:]
+		li  := visual_line_of_byte(vls, off)
+		vl  := vls[li]
+		x: f32 = 0
+		if off > vl.start { x, _ = measure_text(r, text[vl.start:off], st.tg_fs, st.tg_font) }
+		// Stack by stride to match render; caret box stays line_h tall.
+		stride := st.tg_stride if st.tg_stride > 0 else lh
+		line_y := iy - st.scroll_y + f32(li) * stride
+		return Rect{ix + x, line_y, 0, lh}, true
+	}
+
+	// Single-line: vertically centred, no horizontal scroll.
+	x: f32 = 0
+	if off > 0 { x, _ = measure_text(r, text[:off], st.tg_fs, st.tg_font) }
+	ty := iy + (st.last_rect.h - 2 * st.tg_pad.y - lh) / 2
+	return Rect{ix + x, ty, 0, lh}, true
+}
+
+// text_input_offset_at maps a screen point to the nearest byte offset in
+// the field — the inverse of text_input_offset_rect, with the same
+// call-from-`view` contract. Use it to resolve which word/character a
+// (right-)click landed on without disturbing the caret. Returns ok=false
+// if `id` isn't a text_input that rendered recently.
+text_input_offset_at :: proc(ctx: ^Ctx($Msg), id: Widget_ID, pos: [2]f32) -> (offset: int, ok: bool) {
+	st, exists := ctx.widgets.states[id]
+	if !exists || st.kind != .Text_Input { return 0, false }
+	if st.last_frame + 1 < ctx.widgets.frame { return 0, false }
+	r := ctx.renderer
+	if r == nil { return 0, false }
+
+	text  := st.tg_text
+	ix    := st.last_rect.x + st.tg_pad.x
+	iy    := st.last_rect.y + st.tg_pad.y
+	rel_x := pos.x - ix
+
+	if st.tg_multiline {
+		if st.vline_cache == nil || len(st.vline_cache.lines) == 0 { return 0, false }
+		vls := st.vline_cache.lines[:]
+		ry  := pos.y - (iy - st.scroll_y)
+		// Divide by stride, not bare line_h, or spacing makes it overshoot.
+		stride := st.tg_stride if st.tg_stride > 0 else st.tg_line_h
+		li  := int(ry / stride)
+		if li < 0 { li = 0 }
+		if li > len(vls) - 1 { li = len(vls) - 1 }
+		vl  := vls[li]
+		col := byte_index_at_x(r, text[vl.start:vl.end], st.tg_fs, st.tg_font, rel_x)
+		return vl.start + col, true
+	}
+
+	col := byte_index_at_x(r, text, st.tg_fs, st.tg_font, rel_x)
+	return col, true
 }
 
 // search_field is the dedicated search-input widget: a `text_input`
@@ -5024,14 +5274,73 @@ Visual_Line :: struct {
 	consume_space: bool,
 }
 
+// Visual_Line_Cache memoizes a multiline text_input's wrapped line table
+// across frames. `build_visual_lines` is O(runes) but still re-shapes the
+// whole buffer on every call; on an always-redraw app (or just caret
+// blink / scroll) that's pure waste when nothing about the layout changed.
+// The cache is keyed on everything that affects wrap — the text bytes
+// (length + FNV hash), the wrap width, font size, font, and the wrap flag.
+// Owned by the widget slot, freed in `widget_get` / eviction / destroy.
+Visual_Line_Cache :: struct {
+	lines:    [dynamic]Visual_Line,
+	hash:     u64,
+	text_len: int,
+	inner_w:  f32,
+	fs:       f32,
+	font:     Font,
+	wrap:     bool,
+}
+
+// vline_cache_free releases a widget's cached visual-line table. Safe on nil.
+vline_cache_free :: proc(c: ^Visual_Line_Cache) {
+	if c == nil { return }
+	delete(c.lines)
+	free(c)
+}
+
+// build_visual_lines_cached wraps `build_visual_lines` with the per-widget
+// memo above. On a hit it returns a frame-arena copy of the cached table
+// (byte offsets stay valid because the content hash matched); on a miss it
+// rebuilds, refreshes the slot-owned cache, and returns the fresh table.
+// The returned slice is always frame-arena scoped — never aliased to the
+// persistent cache — so a later same-frame rebuild (post-edit) is safe.
+@(private)
+build_visual_lines_cached :: proc(
+	st: ^Widget_State, r: ^Renderer, text: string,
+	fs, inner_w: f32, wrap: bool, font: Font,
+) -> []Visual_Line {
+	h := hash.fnv64a(transmute([]u8)text)
+	if c := st.vline_cache; c != nil &&
+	   c.text_len == len(text) && c.hash == h && c.inner_w == inner_w &&
+	   c.fs == fs && c.font == font && c.wrap == wrap {
+		out := make([]Visual_Line, len(c.lines), context.temp_allocator)
+		copy(out, c.lines[:])
+		return out
+	}
+
+	fresh := build_visual_lines(r, text, fs, inner_w, wrap, font)
+	c := st.vline_cache
+	if c == nil {
+		c = new(Visual_Line_Cache)
+		c.lines = make([dynamic]Visual_Line)
+		st.vline_cache = c
+	}
+	clear(&c.lines)
+	append(&c.lines, ..fresh)
+	c.hash, c.text_len = h, len(text)
+	c.inner_w, c.fs, c.font, c.wrap = inner_w, fs, font, wrap
+	return fresh
+}
+
 // build_visual_lines materializes the visual-line table for a buffer.
 // With `wrap = false` this degenerates to one entry per logical line.
 // With `wrap = true` each logical line is broken at word boundaries
 // (the last space before overflow) or, when no space exists, hard-broken
-// at the last rune that fits. Measures each candidate prefix against
-// `measure_text` — linear in the number of runes, which is fine for
-// edit-buffer-sized text. If `inner_w <= 0` or the renderer is nil the
-// wrap fallback is skipped and we behave as if wrap were off.
+// at the last rune that fits. Each logical line is shaped once into a
+// cumulative-advance array (`text_line_advances`) and the break points
+// fall out as subtractions — O(runes), no per-rune re-measure. If
+// `inner_w <= 0` or the renderer is nil the wrap fallback is skipped and
+// we behave as if wrap were off.
 @(private)
 build_visual_lines :: proc(
 	r: ^Renderer, text: string, fs, inner_w: f32, wrap: bool, font: Font = 0,
@@ -5051,7 +5360,12 @@ build_visual_lines :: proc(
 			// the whole range as one visual line.
 			append(&out, Visual_Line{start = i, end = le})
 		} else {
-			// Wrap the run [i, le] at word boundaries.
+			// Wrap the run [i, le] at word boundaries. Shape the logical
+			// line ONCE into cumulative byte-advances (adv[k] = width of
+			// text[i:i+k]); the break width for any prefix is then a
+			// subtraction instead of a re-measure — O(runes) per line
+			// rather than O(runes) shaping calls.
+			adv := text_line_advances(r, text[i:le], fs, font)
 			pos := i
 			for pos < le {
 				// Walk one rune at a time, remembering the last space we
@@ -5059,13 +5373,14 @@ build_visual_lines :: proc(
 				last_space := -1
 				j := pos
 				fits_all := true
+				base := adv[pos - i]
 				for j < le {
 					// Advance one rune.
 					_, rune_bytes := utf8.decode_rune_in_string(text[j:])
 					if rune_bytes <= 0 { rune_bytes = 1 }
 					next := j + rune_bytes
 					if next > le { next = le }
-					w, _ := measure_text(r, text[pos:next], fs, font)
+					w := adv[next - i] - base
 					if w > inner_w && next > pos + 1 {
 						fits_all = false
 						break
@@ -5095,6 +5410,17 @@ build_visual_lines :: proc(
 					if cut > pos + 1 {
 						_, rb := utf8.decode_last_rune_in_string(text[pos:cut])
 						if rb > 0 && cut - rb > pos { cut -= rb }
+					}
+					if cut <= pos {
+						// The overflow landed on the first rune of the line
+						// and it's multi-byte (emoji / CJK / accented) wider
+						// than inner_w, so the loop broke at j == pos. A
+						// single rune can't shrink — emit exactly it so we
+						// always advance (else `pos` sticks and we'd spin
+						// emitting empty lines until OOM).
+						_, rb := utf8.decode_rune_in_string(text[pos:])
+						cut = pos + max(rb, 1)
+						if cut > le { cut = le }
 					}
 					append(&out, Visual_Line{start = pos, end = cut})
 					pos = cut
@@ -8987,12 +9313,46 @@ color_picker_payload :: proc(
 // selected header reads clearly. Inactive tabs: window bg + muted fg.
 // The underline is part of the tab's layout column (not floated) so
 // adjacent tabs can't visually overlap it.
-tabs :: proc(
+// tabs renders a horizontal tab strip. The plain form takes just
+// `on_change`; the closable form adds `on_close`, fired when a tab is
+// middle-clicked — the universal "close this tab" gesture (browsers,
+// terminals, editors). Two builders rather than one `on_close = nil`
+// default: a nil default on a polymorphic `proc(int) -> $Msg` doesn't
+// monomorphize in Odin, so the optional callback rides a dedicated
+// builder (same split as text_input).
+tabs :: proc{tabs_simple, tabs_closable}
+
+tabs_simple :: proc(
 	ctx:       ^Ctx($Msg),
 	labels:    []string,
 	active:    int,
 	on_change: proc(index: int) -> Msg,
 	id:        Widget_ID = 0,
+) -> View {
+	return _tabs(ctx, labels, active, on_change, nil, id)
+}
+
+// on_close fires when a tab is middle-clicked. Fired unconditionally;
+// the app decides policy (e.g. refusing to close the last tab).
+tabs_closable :: proc(
+	ctx:       ^Ctx($Msg),
+	labels:    []string,
+	active:    int,
+	on_change: proc(index: int) -> Msg,
+	on_close:  proc(index: int) -> Msg,
+	id:        Widget_ID = 0,
+) -> View {
+	return _tabs(ctx, labels, active, on_change, on_close, id)
+}
+
+@(private="file")
+_tabs :: proc(
+	ctx:       ^Ctx($Msg),
+	labels:    []string,
+	active:    int,
+	on_change: proc(index: int) -> Msg,
+	on_close:  proc(index: int) -> Msg,
+	id:        Widget_ID,
 ) -> View {
 	th := ctx.theme
 
@@ -9010,6 +9370,15 @@ tabs :: proc(
 	for label, i in labels {
 		is_active := i == active
 		btn_id := widget_make_sub_id(tabs_id, u64(i + 1))
+
+		// Middle-click closes the tab. Gated on the button's own id so
+		// the hit-test is z-aware and matches exactly the tab the
+		// pointer is over (last-frame rect, the usual immediate-mode
+		// pattern). Left-click activation stays on the button itself.
+		if on_close != nil && ctx.input.mouse_pressed[.Middle] &&
+		   widget_hovered(ctx, btn_id) {
+			send(ctx, on_close(i))
+		}
 
 		// Tabs read cleanly on any parent when active/inactive don't
 		// fight the parent's bg. Inactive: plain `surface` — blends
@@ -9331,9 +9700,17 @@ context_menu :: proc(
 	// (`return zoned` when not open) so a stretching parent's offered
 	// width still reaches the zone child. The overlay contributes 0
 	// cross extent to the col.
+	// `flex(1, zoned)` (not a bare `zoned`) so the child keeps the same
+	// layout role it has in the closed `return zoned` path: a self-sizing
+	// child (table/grid/anything via `sized()`) is *offered* the full
+	// main-axis height the parent gave this col, instead of collapsing to
+	// its intrinsic min and rendering blank. The overlay floats (0 extent)
+	// and `spacing = 0` keeps the flex child from being shortened by a gap
+	// against it, so open and closed lay the child out identically.
 	return col(
-		zoned,
+		flex(1, zoned),
 		overlay(anchor_rect, card, .Below, {0, 0}, anim_op),
+		spacing     = 0,
 		cross_align = .Stretch,
 	)
 }
@@ -10991,9 +11368,13 @@ virtual_list :: proc(
 		state_snap := state
 		when intrinsics.type_is_pointer(T) {
 			Elem :: intrinsics.type_elem_type(T)
-			elem := new(Elem, context.temp_allocator)
-			elem^ = state^
-			state_snap = cast(T) elem
+			// Skip the snapshot for a zero-size pointee (State = struct{}):
+			// nothing to copy, and new/copy of a 0-size type faults ASan.
+			when size_of(Elem) > 0 {
+				elem := new(Elem, context.temp_allocator)
+				elem^ = state^
+				state_snap = cast(T) elem
+			}
 		}
 
 		P :: Virtual_List_Params(Msg, T)
@@ -11451,6 +11832,16 @@ Table_Column :: struct {
 	align:     Cross_Align, // horizontal alignment of cell content in the column
 	sortable:  bool,        // clicking the header fires on_sort_change
 	resizable: bool,        // right-edge drag fires on_resize; needs width > 0
+	// ellipsis truncates over-long cell content to the column width with
+	// a trailing "…" instead of letting it spill into the next column.
+	// The table stretches this column's cells to the resolved width (so
+	// the text is actually width-constrained) and, for a bare `text`
+	// cell, sets its overflow to `.Ellipsis` for you — so marking the
+	// column is usually all you need. Because the cell stretches, an
+	// ellipsis column renders left-aligned (ignores `align`); intended
+	// for name/path/title columns. Wrapped cells (e.g. icon + text) are
+	// stretched but not auto-elided — set `overflow` on the text inside.
+	ellipsis:  bool,
 	// hidden=true collapses the column entirely: the header cell, body
 	// cells, and any resize/sort hit-targets are skipped. The app's
 	// `row_builder` is still called with the full set of cells — it's
@@ -11609,6 +12000,7 @@ Table_Params :: struct($Msg: typeid, $T: typeid) {
 	sort_column:     int,
 	sort_ascending:  bool,
 	focus_row:       int,
+	reveal_row:      int,
 	id:              Widget_ID,
 	overscan:        int,
 	header_height:   f32,
@@ -11636,6 +12028,11 @@ Table_Params :: struct($Msg: typeid, $T: typeid) {
 //
 // Optional: `sort_column`/`sort_ascending` draw the sort indicator;
 // `focus_row` is the keyboard-focused row (drawn with a ring);
+// `reveal_row` (default -1) scrolls a row into view when its value
+// changes — pass the row you just moved focus to (typeahead, Backspace,
+// "reveal selection") and the table reveals it without yanking the
+// viewport while the value holds steady. In-table keyboard nav already
+// self-reveals, so this is only needed for app-driven focus moves.
 // `header_height` defaults to 32 logical pixels; `overscan` is the
 // extra rows rendered outside the viewport for smooth scrolling.
 // `viewport` follows the same zero-axis fill convention as `scroll`.
@@ -11656,6 +12053,7 @@ table :: proc(
 	sort_column:     int       = -1,
 	sort_ascending:  bool      = true,
 	focus_row:       int       = -1,
+	reveal_row:      int       = -1,
 	id:              Widget_ID = 0,
 	overscan:        int       = 4,
 	header_height:   f32       = 32,
@@ -11686,9 +12084,13 @@ table :: proc(
 		state_snap := state
 		when intrinsics.type_is_pointer(T) {
 			Elem :: intrinsics.type_elem_type(T)
-			elem := new(Elem, context.temp_allocator)
-			elem^ = state^
-			state_snap = cast(T) elem
+			// Skip the snapshot for a zero-size pointee (State = struct{}):
+			// nothing to copy, and new/copy of a 0-size type faults ASan.
+			when size_of(Elem) > 0 {
+				elem := new(Elem, context.temp_allocator)
+				elem^ = state^
+				state_snap = cast(T) elem
+			}
 		}
 
 		P :: Table_Params(Msg, T)
@@ -11708,6 +12110,7 @@ table :: proc(
 			sort_column     = sort_column,
 			sort_ascending  = sort_ascending,
 			focus_row       = focus_row,
+			reveal_row      = reveal_row,
 			id              = id,
 			overscan        = overscan,
 			header_height   = header_height,
@@ -11733,6 +12136,7 @@ table :: proc(
 				sort_column    = data.sort_column,
 				sort_ascending = data.sort_ascending,
 				focus_row      = data.focus_row,
+				reveal_row     = data.reveal_row,
 				id             = data.id,
 				overscan       = data.overscan,
 				header_height  = data.header_height,
@@ -12029,6 +12433,23 @@ table :: proc(
 		}
 	}
 
+	// App-driven reveal: when the caller's `reveal_row` changes, scroll
+	// the minimal amount to bring it into view. Stored as row+1 so the
+	// zero default means "nothing revealed". Gating on change (not value)
+	// lets the app pass a steady reveal_row without re-snapping the
+	// viewport every frame, so manual scroll between reveals sticks.
+	if reveal_row >= 0 && reveal_row < row_count && st.reveal_marker != reveal_row + 1 {
+		top    := f32(reveal_row) * item_height
+		bottom := top + item_height
+		if top    < scroll_y                   { scroll_y = top                      }
+		if bottom > scroll_y + body_viewport.y { scroll_y = bottom - body_viewport.y }
+		if scroll_y > max_off                  { scroll_y = max_off                  }
+		if scroll_y < 0                        { scroll_y = 0                        }
+		st.scroll_y       = scroll_y
+		st.reveal_marker  = reveal_row + 1
+		widget_set(ctx, body_id, st)
+	}
+
 	first := int(scroll_y / item_height) - overscan
 	last  := int((scroll_y + body_viewport.y) / item_height) + overscan + 1
 	if first < 0          { first = 0          }
@@ -12075,13 +12496,26 @@ table :: proc(
 			if col_spec.hidden { continue }
 			cell: View
 			if ci < len(cells) { cell = cells[ci] }
+			// Ellipsis columns stretch the cell so its content is
+			// assigned the column width (a .Start/.End/.Center box hands
+			// the child its intrinsic width and just offsets it, so it
+			// would never truncate). For the common bare-`text` cell we
+			// also flip on `.Ellipsis` so callers needn't repeat it.
+			cell_cross := col_spec.align
+			if col_spec.ellipsis {
+				cell_cross = .Stretch
+				if t, ok := cell.(View_Text); ok {
+					t.overflow = .Ellipsis
+					cell = t
+				}
+			}
 			append(&wrapped, col(
 				cell,
 				width       = widths[ci],
 				height      = item_height,
 				padding     = th.spacing.sm,
 				main_align  = .Center,
-				cross_align = col_spec.align,
+				cross_align = cell_cross,
 			))
 		}
 
@@ -12150,6 +12584,15 @@ table :: proc(
 				// Clicking a row moves keyboard focus to the table
 				// so arrow keys Just Work without an extra Tab.
 				widget_focus(ctx, body_id)
+				// Double-click activates the row — same gesture as
+				// Enter/Space, but from the mouse. SDL reports the
+				// streak in mouse_click_count (>=2, so a fast triple
+				// still opens); the click above still fires first so
+				// selection settles on this row before it's opened.
+				if on_row_activate != nil &&
+				   ctx.input.mouse_click_count[.Left] >= 2 {
+					send(ctx, on_row_activate(i))
+				}
 			}
 			widget_set(ctx, row_id, row_st)
 			rc := new(View, context.temp_allocator)
@@ -12662,6 +13105,12 @@ tree :: proc(
 				focus_idx = i
 				widget_focus(ctx, id)
 				focused = true
+				// Double-click on the row body expands/collapses it,
+				// same as hitting the chevron — file-manager muscle
+				// memory. The select above still fires first.
+				if r.expandable && ctx.input.mouse_click_count[.Left] >= 2 {
+					send(ctx, on_toggle(i))
+				}
 			}
 		}
 	}

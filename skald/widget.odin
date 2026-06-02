@@ -115,6 +115,16 @@ Widget_Kind :: enum u8 {
 Widget_State :: struct {
 	kind:        Widget_Kind,
 	last_rect:   Rect,
+	// clip_rect is the scissor that was active when the widget rendered —
+	// the running intersection of every enclosing push_clip (a scroll
+	// viewport, a clipped label, …). `widget_hovered` rejects the hover
+	// when the mouse falls outside it, so a widget scrolled out of its
+	// container's viewport (overscan table rows, a button past a scroll's
+	// edge) isn't clickable where it's no longer drawn — even though its
+	// full last_rect still lives there for geometry/anchoring. Zero means
+	// "no clip was active" → no restriction, which also leaves widgets
+	// whose state is built directly (headless tests) hoverable.
+	clip_rect:   Rect,
 	// last_frame is the frame counter value at which this state was
 	// last written by a widget builder. It disambiguates positional-ID
 	// reshuffles where a slot is inherited by a *different* widget of
@@ -148,6 +158,12 @@ Widget_State :: struct {
 	// `pressed` is true; when the handle isn't latched this is just
 	// the default 0 and is ignored.
 	drag_donor: int,
+	// reveal_marker tracks the last `reveal_row` the table acted on,
+	// stored as row+1 so the zero-value means "nothing revealed yet".
+	// The table scrolls a row into view only when the app's reveal_row
+	// changes, so app-driven focus moves (typeahead, Backspace) reveal
+	// without a steady reveal_row fighting the user's manual scroll.
+	reveal_marker: int,
 	open:        bool, // popover-style widgets (select/combo) use this to toggle their overlay
 	// anchor_pos remembers a cursor-space point for widgets whose popover
 	// position is set by the triggering gesture — context_menu stores the
@@ -243,6 +259,28 @@ Widget_State :: struct {
 	press_pos:       [2]f32,
 	press_link_idx:  int,
 	link_fire_at_ns: i64,
+
+	// vline_cache memoizes a multiline text_input's wrapped visual-line
+	// table across frames (see Visual_Line_Cache). Allocated lazily on the
+	// first multiline build, owned by this slot on the persistent heap,
+	// freed when the slot is reused by another widget kind or the store is
+	// destroyed. Nil for every non-multiline widget.
+	vline_cache: ^Visual_Line_Cache,
+
+	// tg_* is a frame-scoped geometry snapshot stamped by the text_input
+	// builder so `text_input_offset_at` / `text_input_offset_rect` can map
+	// screen<->byte without retaining glyph geometry. `tg_text` references
+	// the frame arena, so the accessors are only valid when called during
+	// the SAME frame's update pass (the loop is view->render->update, which
+	// keeps the arena alive); staleness is gated by `last_frame`. These are
+	// borrows, not owned — no cleanup needed.
+	tg_text:      string,
+	tg_fs:        f32,
+	tg_font:      Font,
+	tg_pad:       [2]f32,
+	tg_line_h:    f32,   // glyph box height (caret/selection box sizing)
+	tg_stride:    f32,   // per-visual-line vertical advance (line_h + line_spacing)
+	tg_multiline: bool,
 
 	// last_overlay_frame is the most recent frame on which this widget's
 	// `widget_record_rect` ran while the renderer was inside an overlay
@@ -455,6 +493,11 @@ Widget_Store :: struct {
 	// always 0.
 	inside_overlay_depth: int,
 
+	// clip_stack mirrors the backend clip nesting during layout rendering.
+	// Widget rect stamps copy its top entry so next-frame hit testing can
+	// reject controls scrolled or clipped out of view.
+	clip_stack: [dynamic]Rect,
+
 	// scroll_rects tracks every scrollable container's viewport rect this
 	// frame, in render order (outer → inner). `scroll_rects_prev` is the
 	// previous frame's list. `scroll_advance` consults the prev list to
@@ -581,6 +624,7 @@ widget_store_init :: proc(ws: ^Widget_Store) {
 	ws.focusables         = make([dynamic]Focusable_Entry)
 	ws.overlay_rects      = make([dynamic]Rect)
 	ws.overlay_rects_prev = make([dynamic]Rect)
+	ws.clip_stack         = make([dynamic]Rect)
 	ws.scroll_rects       = make([dynamic]Scroll_Rect)
 	ws.scroll_rects_prev  = make([dynamic]Scroll_Rect)
 }
@@ -600,11 +644,13 @@ widget_store_destroy :: proc(ws: ^Widget_Store) {
 		}
 		if len(st.text_buffer) > 0 { delete(st.text_buffer) }
 		link_rects_free(st.link_rects)
+		vline_cache_free(st.vline_cache)
 	}
 	delete(ws.states)
 	delete(ws.focusables)
 	delete(ws.overlay_rects)
 	delete(ws.overlay_rects_prev)
+	delete(ws.clip_stack)
 	delete(ws.scroll_rects)
 	delete(ws.scroll_rects_prev)
 	ws.states = nil
@@ -656,6 +702,7 @@ widget_store_frame_reset :: proc(ws: ^Widget_Store) {
 	// this frame.
 	ws.overlay_rects, ws.overlay_rects_prev = ws.overlay_rects_prev, ws.overlay_rects
 	clear(&ws.overlay_rects)
+	clear(&ws.clip_stack)
 	// Same swap-and-clear for scroll_rects so scroll_advance can consult
 	// last frame's list while stamping this frame's.
 	ws.scroll_rects, ws.scroll_rects_prev = ws.scroll_rects_prev, ws.scroll_rects
@@ -731,6 +778,7 @@ widget_store_evict_stale :: proc(ws: ^Widget_Store) {
 		}
 		if len(st.text_buffer) > 0 { delete(st.text_buffer) }
 		link_rects_free(st.link_rects)
+		vline_cache_free(st.vline_cache)
 		delete_key(&ws.states, id)
 	}
 }
@@ -744,19 +792,16 @@ widget_store_evict_stale :: proc(ws: ^Widget_Store) {
 // cleanup treats them as deliberate.
 widget_auto_id :: proc(ctx: ^Ctx($Msg)) -> Widget_ID {
 	ctx.widgets.auto_id += 1
-	if ctx.widgets.auto_id_scope != 0 {
-		// Mix the per-row scope with the per-call counter through a
-		// golden-ratio multiply so two small inputs (scope=1 counter=2 vs
-		// scope=2 counter=1) don't XOR-collide into the same id. Plain
-		// XOR was fine when both inputs were already hashes, but apps
-		// passing small ints as scope keys (`row.id`) plus the
-		// inherently-small counter caused widgets to alias across rows
-		// — selects opening then immediately re-closing, number_inputs
-		// stealing each other's draft buffers, etc.
-		mixed := ctx.widgets.auto_id_scope ~ (u64(ctx.widgets.auto_id) * 0x9e3779b97f4a7c15)
-		return Widget_ID(mixed) | WIDGET_ID_EXPLICIT_BIT
-	}
-	return ctx.widgets.auto_id
+	// Fold scope (0 when unscoped) and the per-call counter through a
+	// golden-ratio multiply, not XOR: a small scope key (`row.id`) plus a
+	// small counter would XOR-collide and alias widgets across rows.
+	// The result always lands in the high (explicit) half, even unscoped,
+	// which keeps `widget_resolve_id` idempotent — wrappers (chat_input,
+	// search_field) resolve an id then re-resolve it inside text_input, and
+	// a bare low auto-id would gain the high bit on that second pass and
+	// desync the two (#4: chat_input with no id never saw focus).
+	mixed := ctx.widgets.auto_id_scope ~ (u64(ctx.widgets.auto_id) * 0x9e3779b97f4a7c15)
+	return Widget_ID(mixed) | WIDGET_ID_EXPLICIT_BIT
 }
 
 // widget_make_sub_id derives a stable child id from a parent id and a
@@ -840,11 +885,12 @@ widget_scope_pop :: proc(ctx: ^Ctx($Msg), saved: Widget_Scope_Saved) {
 	ctx.widgets.auto_id       = saved.counter
 }
 
-// WIDGET_ID_EXPLICIT_BIT marks IDs produced by `hash_id` (or any caller
-// passing an explicit key) so they can't collide with positional
-// auto-IDs. widget_auto_id increments from 1 and in practice never
-// reaches values with the high bit set, so flipping the top bit on
-// explicit IDs partitions the namespace cleanly.
+// WIDGET_ID_EXPLICIT_BIT is set on every resolved id — from `hash_id`,
+// `widget_make_sub_id`, and `widget_auto_id`'s mixed output. The low half
+// is only the transient per-frame counter before mixing; nothing is stored
+// there. Keeping all final ids high is what makes `widget_resolve_id`
+// idempotent. Raw hand-typed ids (`Widget_ID(1)`) are the exception —
+// `widget_resolve_id` normalizes them into the high half on the way in.
 WIDGET_ID_EXPLICIT_BIT :: Widget_ID(1) << 63
 
 // hash_id turns a stable string key into a Widget_ID. The returned ID
@@ -877,9 +923,21 @@ hash_id :: proc(key: string) -> Widget_ID {
 // positional auto-id. Builders call it once via `id := widget_resolve_id(ctx, id)`
 // so existing `id` references in the body stay unchanged — the local
 // shadow of the param turns into a real Widget_ID in one step.
+//
+// Both branches return a high-half id, so the proc is idempotent: resolving
+// an already-resolved id is a no-op. Wrappers (chat_input, search_field)
+// rely on this — they resolve an id, then text_input resolves it again, and
+// the two must land on the same value or focus/submit desyncs (#4). A raw
+// small-int id (`Widget_ID(1)`) is normalized into the high half so it can't
+// collide with an auto-id.
+//
+// NOTE: a *raw* explicit id you also pass to a direct API
+// (`widget_get`/`widget_focus`/`text_input_offset_*`) won't match — those
+// see the raw value while the widget is stored under the normalized one, so
+// any id you reference elsewhere must come from `hash_id`.
 @(private)
 widget_resolve_id :: proc(ctx: ^Ctx($Msg), explicit: Widget_ID) -> Widget_ID {
-	if explicit != 0 { return explicit }
+	if explicit != 0 { return explicit | WIDGET_ID_EXPLICIT_BIT }
 	return widget_auto_id(ctx)
 }
 
@@ -911,6 +969,7 @@ widget_get :: proc(ctx: ^Ctx($Msg), id: Widget_ID, kind: Widget_Kind) -> Widget_
 		}
 		if len(st.text_buffer) > 0 { delete(st.text_buffer) }
 		link_rects_free(st.link_rects)
+		vline_cache_free(st.vline_cache)
 		st = Widget_State{kind = kind}
 		// Persist the reset state back to the store. Otherwise the
 		// map entry still holds the now-freed pointers (undo /
@@ -988,9 +1047,19 @@ widget_stamp_overlay_rect :: proc(ws: ^Widget_Store, r: Rect) {
 // placed in window coordinates. The rect is what hit-testing next frame
 // will check against.
 @(private)
-widget_record_rect :: proc(ws: ^Widget_Store, id: Widget_ID, rect: Rect) {
+widget_record_rect :: proc(r: ^Render_Context, id: Widget_ID, rect: Rect) {
+	ws := r.widgets
+	if ws == nil { return }
 	st := ws.states[id]
 	st.last_rect = rect
+	// Record the scissor active right now — the top of the clip stack
+	// already holds the running intersection of every enclosing push_clip.
+	// Zero when nothing is pushed, which widget_hovered reads as
+	// "unclipped" (no restriction).
+	st.clip_rect = {}
+	if n := len(ws.clip_stack); n > 0 {
+		st.clip_rect = ws.clip_stack[n - 1]
+	}
 	// Stamp the overlay-frame marker so `widget_hovered` can tell which
 	// widgets are rendered ON an overlay layer vs which are behind one.
 	// `inside_overlay_depth` is non-zero only while `render_overlays` is
@@ -1102,6 +1171,13 @@ widget_hovered :: proc(ctx: ^Ctx($Msg), id: Widget_ID) -> bool {
 	st, ok := ctx.widgets.states[id]
 	if !ok { return false }
 	if !rect_contains_point(st.last_rect, ctx.input.mouse_pos) { return false }
+	// Reject the hover when the mouse is outside the scissor the widget
+	// rendered under: a widget scrolled out of its container's viewport
+	// keeps a full last_rect for geometry but isn't clickable where it's
+	// clipped away. Zero clip_rect = unclipped = no restriction.
+	if st.clip_rect.w > 0 && !rect_contains_point(st.clip_rect, ctx.input.mouse_pos) {
+		return false
+	}
 
 	// `stamped` is true when this widget rendered inside an overlay subtree
 	// last frame (dialog content, or a popover spawned from one). It's the

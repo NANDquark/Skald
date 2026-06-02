@@ -235,6 +235,53 @@ skald.text_input(ctx, s.username, on_username, max_chars = 20)
 `text_input` counts runes, not bytes — emoji and accented chars count
 as one.
 
+### Spell-check squiggles with a fix menu
+
+Decorate byte ranges with `marks`, then map a click back to a byte with
+`text_input_offset_at` and anchor the fix popover with
+`text_input_offset_rect`. The checker is yours; Skald just draws and maps.
+
+The accessors take `ctx`, so call them from **`view`** (update has no
+`ctx`): read the right-click off `ctx.input`, resolve the hit against last
+frame's geometry, and `send` the result as a Msg that `update` just stores.
+
+```odin
+view :: proc(s: State, ctx: ^skald.Ctx(Msg)) -> skald.View {
+    // Stable id so the accessors can find the field. Use hash_id, NOT a raw
+    // int like Widget_ID(1): unscoped auto-ids are small sequential ints, so
+    // a raw explicit id collides with one and corrupts that widget's state.
+    // hash_id sets a high bit that keeps it clear of the auto-id range.
+    editor := skald.hash_id("editor")
+
+    marks := make([dynamic]skald.Text_Mark, context.temp_allocator)
+    for m in s.misspellings {            // []{start, end} from your scan (debounced)
+        append(&marks, skald.Text_Mark{start = m.start, end = m.end}) // .Squiggle default
+    }
+
+    // Resolve a right-click here, where ctx exists; bake the hit into a Msg.
+    if ctx.input.mouse_pressed[.Right] {
+        if off, ok := skald.text_input_offset_at(ctx, editor, ctx.input.mouse_pos); ok {
+            if w := word_at(s.misspellings, off); w != nil {
+                rect, _ := skald.text_input_offset_rect(ctx, editor, w.start)
+                skald.send(ctx, Open_Fix{anchor = rect, lo = w.start, hi = w.end, fix = w.fix})
+            }
+        }
+    }
+
+    field := skald.text_input(ctx, s.text, on_text,
+        id = editor, multiline = true, wrap = true, marks = marks[:])
+    if !s.menu_open { return field }
+
+    menu := skald.menu(ctx, s.suggestions, on_pick, on_dismiss = on_dismiss)
+    return skald.col(field, skald.overlay(s.anchor, menu, .Below, {0, 2}))
+}
+```
+
+`update` then just stores `Open_Fix` (open + anchor + range) and applies the
+replacement on selection. `{}` mark colour = theme default (red squiggle).
+The same accessor pair maps editor diagnostics, go-to, and annotations.
+See `examples/49_text_marks` for the full working flow.
+
 ### Number field clamped to a range
 
 ```odin

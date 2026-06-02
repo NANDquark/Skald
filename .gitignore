@@ -9,6 +9,7 @@
 /[0-9][0-9]_*
 /limn
 debug_build
+*.bin
 
 # Same pattern inside an example's own directory — happens if a dev
 # runs `odin build .` from `examples/NN_foo/` instead of using build.sh.

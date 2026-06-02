@@ -334,6 +334,32 @@ render_view_draws_image_through_backend_context :: proc(t: ^testing.T) {
 }
 
 @(test)
+image_builder_stores_optional_source_region :: proc(t: ^testing.T) {
+	ctx: Ctx(int)
+	src := Rect{32, 16, 64, 48}
+	view := image(
+		&ctx,
+		"fake://atlas",
+		width = 128,
+		height = 96,
+		fit = .Contain,
+		tint = rgba(0x80FFFFFF),
+		src = src,
+	)
+
+	#partial switch img in view {
+	case View_Image:
+		testing.expect_value(t, img.path, "fake://atlas")
+		testing.expect_value(t, img.size, [2]f32{128, 96})
+		testing.expect_value(t, img.fit, Image_Fit.Contain)
+		testing.expect_value(t, img.tint, rgba(0x80FFFFFF))
+		testing.expect_value(t, img.src, src)
+	case:
+		testing.expect(t, false)
+	}
+}
+
+@(test)
 render_view_queues_overlay_on_render_context :: proc(t: ^testing.T) {
 	fake: Fake_Backend_State
 	defer delete(fake.ops)

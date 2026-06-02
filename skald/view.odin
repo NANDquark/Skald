@@ -705,11 +705,15 @@ Image_Fit :: enum {
 // `tint` modulates the sampled RGBA — pass `{1, 1, 1, 1}` (the default
 // the builder supplies) for no tint. Handy for fade-in animations
 // (scale the alpha) or theming monochrome assets.
+//
+// `src = Rect{}` selects the whole image. An explicit source region treats
+// that region as a virtual image while reusing the texture at `path`.
 View_Image :: struct {
 	path:  string,
 	size:  [2]f32,
 	fit:   Image_Fit,
 	tint:  Color,
+	src:   Rect,
 }
 
 Nine_Slice :: struct {
@@ -10022,6 +10026,10 @@ alert_dialog :: proc(
 // `tint` defaults to white (no tint). Multiplies the sampled RGBA
 // per-pixel, so e.g. `tint = {1,1,1,0.5}` fades the image to half
 // opacity and `tint = th.color.primary` recolors a monochrome asset.
+//
+// `src = Rect{}` uses the whole image. Pass an explicit source region to
+// treat that portion of the texture as a virtual image. Explicit source
+// regions currently require the Karl2D backend.
 image :: proc(
 	ctx:    ^Ctx($Msg),
 	path:   string,
@@ -10029,6 +10037,7 @@ image :: proc(
 	height: f32        = 0,
 	fit:    Image_Fit  = .Cover,
 	tint:   Color      = {1, 1, 1, 1},
+	src:    Rect       = {},
 ) -> View {
 	w := width
 	h := height
@@ -10045,6 +10054,7 @@ image :: proc(
 		size = {w, h},
 		fit  = fit,
 		tint = tint,
+		src  = src,
 	}
 }
 

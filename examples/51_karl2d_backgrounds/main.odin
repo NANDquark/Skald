@@ -94,6 +94,34 @@ view :: proc(s: State, ctx: ^skald.Ctx(Msg)) -> skald.View {
 			skald.image_background(ctx, IMAGE_NAME, panel_content(ctx, ".Fill", "explicit stretch"), fit = .Fill),
 			spacing = th.spacing.md,
 		),
+		skald.text(
+			"Ordinary image widgets can sample one atlas region; fit modes treat the selected rectangle as a virtual image.",
+			th.color.fg_muted,
+			th.font.size_md,
+		),
+		skald.row(
+			skald.col(
+				skald.image(ctx, FRAME_NAME, width = 96, height = 72, fit = .Fill, src = {17, 17, 28, 28}),
+				skald.text(".Fill region", th.color.fg_muted, th.font.size_sm),
+				spacing = th.spacing.xs,
+			),
+			skald.col(
+				skald.image(ctx, FRAME_NAME, width = 96, height = 72, fit = .None, src = {17, 17, 28, 28}),
+				skald.text(".None region", th.color.fg_muted, th.font.size_sm),
+				spacing = th.spacing.xs,
+			),
+			skald.col(
+				skald.image(ctx, FRAME_NAME, width = 96, height = 72, fit = .Contain, src = {17, 17, 56, 28}),
+				skald.text(".Contain region", th.color.fg_muted, th.font.size_sm),
+				spacing = th.spacing.xs,
+			),
+			skald.col(
+				skald.image(ctx, FRAME_NAME, width = 96, height = 72, fit = .Cover, src = {17, 17, 56, 28}),
+				skald.text(".Cover region", th.color.fg_muted, th.font.size_sm),
+				spacing = th.spacing.xs,
+			),
+			spacing = th.spacing.md,
+		),
 		skald.row(
 			skald.nine_slice_background(ctx, FRAME_NAME, FRAME, panel_content(ctx, "Full tiled frame", "corners, borders, brick center")),
 			skald.nine_slice_background(ctx, FRAME_NAME, ASYMMETRIC_FRAME, panel_content(ctx, "Asymmetric frame", "independent source regions", bg = th.color.surface)),

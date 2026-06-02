@@ -463,13 +463,20 @@ leave it off. Color falls back to theme border.
 
 ```odin
 image(ctx, path: string, width = 0, height = 0,
-      fit = .Cover, tint = {1, 1, 1, 1})
+      fit = .Cover, tint = {1, 1, 1, 1}, src: Rect = {})
 ```
 
 Loads an image from `path` and draws it scaled to fit. `fit` is
 `.Cover` (fill, crop), `.Contain` (fit, letterbox), `.Fill` (stretch),
 or `.None` (pixel-exact). Images are cached by path — cheap to use
 the same one in many places.
+
+`src = {}` samples the whole image. A non-empty `src` selects a source-image
+pixel rectangle and treats it as a virtual image for fitting: `.None` uses the
+region's native dimensions, `.Contain` preserves its aspect ratio, and `.Cover`
+crops only within that rectangle. Explicit `src` regions currently require the
+Karl2D backend; SDL/Vulkan whole-image calls remain unchanged, while an
+explicit-region request renders the unsupported-operation placeholder.
 
 `path` can be a file path **or** a synthetic name registered through
 `image_load_pixels` (see below) — the widget treats both the same.

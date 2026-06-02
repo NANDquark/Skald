@@ -8,6 +8,12 @@ bug fixes bump the patch.
 
 ### Added
 
+- **Karl2D `image(src = ...)` atlas regions.** The ordinary `image` widget now
+  accepts an optional source-image pixel rectangle. Existing fit modes treat
+  the selected rectangle as a virtual image, so `.None`, `.Contain`, `.Cover`,
+  and `.Fill` work without sampling neighbouring atlas pixels. Whole-image
+  calls remain unchanged; explicit regions are currently Karl2D-only.
+
 - **Karl2D container image backgrounds.** Added `image_background` and
   `nine_slice_background` wrappers for layout containers, explicit optional
   atlas regions for asymmetric or open-sided chrome, native-scale tiling with

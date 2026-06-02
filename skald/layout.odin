@@ -1669,7 +1669,13 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 			draw_rect(r, box, {1, 0, 1, 1}, 0)
 			return
 		}
-		draw_image_fit_ctx(r, img, box, vv.fit, vv.tint)
+		if vv.src == {} {
+			draw_image_fit_ctx(r, img, box, vv.fit, vv.tint)
+		} else if !draw_image_region_fit_ctx(r, img, vv.src, box, vv.fit, vv.tint) {
+			// Explicit source regions are optional backend functionality.
+			// Fail visibly on unsupported backends or invalid atlas bounds.
+			draw_rect(r, box, {1, 0, 1, 1}, 0)
+		}
 
 	case View_Image_Background:
 		bounds := Rect{origin.x, origin.y, size.x, size.y}
@@ -1957,6 +1963,72 @@ render_overlays :: proc(r: ^Render_Context) {
 @(private)
 rect_empty :: proc(r: Rect) -> bool {
 	return r.w == 0 || r.h == 0
+}
+
+@(private)
+image_region_valid :: proc(src: Rect, image_size: [2]f32) -> bool {
+	if src.x < 0 || src.y < 0 || src.w <= 0 || src.h <= 0 {return false}
+	return src.x + src.w <= image_size.x && src.y + src.h <= image_size.y
+}
+
+@(private)
+image_region_fit_rects :: proc(
+	box: Rect,
+	src: Rect,
+	fit: Image_Fit,
+) -> (dst, fitted_src: Rect) {
+	dst = box
+	fitted_src = src
+	if src.w <= 0 || src.h <= 0 || box.w <= 0 || box.h <= 0 {return}
+
+	switch fit {
+	case .Fill:
+		dst = box
+	case .None:
+		dst = {
+			box.x + (box.w - src.w) * 0.5,
+			box.y + (box.h - src.h) * 0.5,
+			src.w,
+			src.h,
+		}
+	case .Contain:
+		scale := min(box.w / src.w, box.h / src.h)
+		w := src.w * scale
+		h := src.h * scale
+		dst = {box.x + (box.w - w) * 0.5, box.y + (box.h - h) * 0.5, w, h}
+	case .Cover:
+		box_aspect := box.w / box.h
+		src_aspect := src.w / src.h
+		dst = box
+		if src_aspect > box_aspect {
+			visible_w := src.w * (box_aspect / src_aspect)
+			fitted_src.x += (src.w - visible_w) * 0.5
+			fitted_src.w = visible_w
+		} else {
+			visible_h := src.h * (src_aspect / box_aspect)
+			fitted_src.y += (src.h - visible_h) * 0.5
+			fitted_src.h = visible_h
+		}
+	}
+	return
+}
+
+@(private)
+draw_image_region_fit_ctx :: proc(
+	r: ^Render_Context,
+	image: Backend_Image,
+	src, box: Rect,
+	fit: Image_Fit,
+	tint: Color,
+) -> bool {
+	image_size, ok := image_size_ctx(r, image)
+	if !ok || r.backend.images.draw_region == nil || !image_region_valid(src, image_size) {
+		return false
+	}
+	dst, fitted_src := image_region_fit_rects(box, src, fit)
+	push_clip(r, box)
+	defer pop_clip(r)
+	return draw_image_region_ctx(r, image, fitted_src, dst, tint)
 }
 
 @(private)

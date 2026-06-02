@@ -359,6 +359,144 @@ image_builder_stores_optional_source_region :: proc(t: ^testing.T) {
 	}
 }
 
+@(private)
+expect_image_region_draw :: proc(t: ^testing.T, fit: Image_Fit, box, src, want_src, want_dst: Rect) {
+	fake := Fake_Backend_State{image_native_size = {256, 128}}
+	defer delete(fake.ops)
+
+	backend := fake_backend(&fake)
+	rc := render_context_from_backend(&backend)
+
+	render_view(
+		&rc,
+		View_Image {
+			path = "fake://atlas",
+			size = {box.w, box.h},
+			fit = fit,
+			tint = rgba(0x80FFFFFF),
+			src = src,
+		},
+		{box.x, box.y},
+		{box.w, box.h},
+	)
+
+	if !testing.expect_value(t, len(fake.ops), 3) {
+		return
+	}
+	testing.expect_value(t, fake.ops[0].kind, Fake_Draw_Kind.Push_Clip)
+	testing.expect_value(t, fake.ops[0].rect, box)
+	testing.expect_value(t, fake.ops[1].kind, Fake_Draw_Kind.Image)
+	testing.expect_value(t, fake.ops[1].src, want_src)
+	testing.expect_value(t, fake.ops[1].rect, want_dst)
+	testing.expect_value(t, fake.ops[1].color, rgba(0x80FFFFFF))
+	testing.expect_value(t, fake.ops[2].kind, Fake_Draw_Kind.Pop_Clip)
+}
+
+@(test)
+render_view_draws_image_region_with_fill_fit :: proc(t: ^testing.T) {
+	expect_image_region_draw(
+		t,
+		.Fill,
+		{5, 6, 100, 80},
+		{32, 16, 64, 48},
+		{32, 16, 64, 48},
+		{5, 6, 100, 80},
+	)
+}
+
+@(test)
+render_view_draws_image_region_with_none_fit :: proc(t: ^testing.T) {
+	expect_image_region_draw(
+		t,
+		.None,
+		{5, 6, 100, 80},
+		{32, 16, 64, 48},
+		{32, 16, 64, 48},
+		{23, 22, 64, 48},
+	)
+}
+
+@(test)
+render_view_draws_image_region_with_contain_fit :: proc(t: ^testing.T) {
+	expect_image_region_draw(
+		t,
+		.Contain,
+		{5, 6, 100, 100},
+		{32, 16, 64, 32},
+		{32, 16, 64, 32},
+		{5, 31, 100, 50},
+	)
+}
+
+@(test)
+render_view_draws_image_region_with_cover_fit :: proc(t: ^testing.T) {
+	expect_image_region_draw(
+		t,
+		.Cover,
+		{5, 6, 100, 100},
+		{32, 16, 64, 32},
+		{48, 16, 32, 32},
+		{5, 6, 100, 100},
+	)
+}
+
+@(test)
+render_view_draws_placeholder_for_invalid_image_region :: proc(t: ^testing.T) {
+	fake := Fake_Backend_State{image_native_size = {64, 64}}
+	defer delete(fake.ops)
+
+	backend := fake_backend(&fake)
+	rc := render_context_from_backend(&backend)
+
+	render_view(
+		&rc,
+		View_Image {
+			path = "fake://atlas",
+			size = {20, 10},
+			fit = .Fill,
+			src = {63, 0, 2, 2},
+		},
+		{5, 6},
+		{20, 10},
+	)
+
+	if !testing.expect_value(t, len(fake.ops), 1) {
+		return
+	}
+	testing.expect_value(t, fake.ops[0].kind, Fake_Draw_Kind.Rect)
+	testing.expect_value(t, fake.ops[0].rect, Rect{5, 6, 20, 10})
+	testing.expect_value(t, fake.ops[0].color, Color{1, 0, 1, 1})
+}
+
+@(test)
+render_view_draws_placeholder_when_image_region_service_is_missing :: proc(t: ^testing.T) {
+	fake := Fake_Backend_State{image_native_size = {64, 64}}
+	defer delete(fake.ops)
+
+	backend := fake_backend(&fake)
+	backend.images.draw_region = nil
+	rc := render_context_from_backend(&backend)
+
+	render_view(
+		&rc,
+		View_Image {
+			path = "fake://atlas",
+			size = {20, 10},
+			fit = .Fill,
+			src = {0, 0, 2, 2},
+		},
+		{5, 6},
+		{20, 10},
+	)
+
+	if !testing.expect_value(t, len(fake.ops), 1) {
+		return
+	}
+	testing.expect_value(t, fake.ops[0].kind, Fake_Draw_Kind.Rect)
+	testing.expect_value(t, fake.ops[0].rect, Rect{5, 6, 20, 10})
+	testing.expect_value(t, fake.ops[0].color, Color{1, 0, 1, 1})
+}
+
 @(test)
 render_view_queues_overlay_on_render_context :: proc(t: ^testing.T) {
 	fake: Fake_Backend_State

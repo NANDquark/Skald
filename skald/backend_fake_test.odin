@@ -522,6 +522,37 @@ render_view_queues_overlay_on_render_context :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, overlay_queue[0].origin, [2]f32{160, 30})
 	testing.expect_value(t, overlay_queue[0].size, [2]f32{40, 12})
+	testing.expect_value(t, overlay_queue[0].shadow_radius, f32(8))
+}
+
+@(test)
+render_view_queues_overlay_shadow_radius_from_call_site :: proc(t: ^testing.T) {
+	fake: Fake_Backend_State
+	defer delete(fake.ops)
+
+	overlay_queue := make([dynamic]Overlay_Entry)
+	defer delete(overlay_queue)
+
+	backend := fake_backend(&fake)
+	rc := render_context_from_backend(&backend)
+	rc.frame_size = {200, 100}
+	rc.overlays = &overlay_queue
+
+	render_view(
+		&rc,
+		overlay(
+			{x = 20, y = 10, w = 16, h = 20},
+			rect({40, 12}, rgb(0x00FF00)),
+			shadow_radius = 3,
+		),
+		{0, 0},
+		{200, 100},
+	)
+
+	if !testing.expect_value(t, len(overlay_queue), 1) {
+		return
+	}
+	testing.expect_value(t, overlay_queue[0].shadow_radius, f32(3))
 }
 
 @(test)

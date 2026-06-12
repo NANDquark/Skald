@@ -1475,7 +1475,7 @@ render_view :: proc(r: ^Render_Context, v: View, origin: [2]f32, size: [2]f32) {
 				origin = {x, y},
 				size = cs,
 				child = vv.child^,
-				shadow_radius = 8,
+				shadow_radius = vv.shadow_radius,
 				opacity = op,
 			},
 		)

@@ -623,6 +623,10 @@ View_Overlay :: struct {
 	placement: Overlay_Placement,
 	offset:    [2]f32, // nudge from the natural placement (e.g. {0, 4} for a 4-px gap)
 	child:     ^View,
+	// shadow_radius controls the drop shadow drawn beneath this overlay.
+	// 0 suppresses the shadow; default overlay() calls keep Skald's
+	// historical 8 px shadow radius.
+	shadow_radius: f32,
 	// opacity fades the overlay subtree during open / close
 	// transitions. 0 suppresses rendering entirely; 1 is fully visible.
 	// Widget builders drive this from an animated `anim_t`; zero-value
@@ -3592,15 +3596,17 @@ overlay :: proc(
 	placement: Overlay_Placement = .Below,
 	offset:    [2]f32            = {0, 0},
 	opacity:   f32               = 1,
+	shadow_radius: f32           = 8,
 ) -> View {
 	c := new(View, context.temp_allocator)
 	c^ = child
 	return View_Overlay{
-		anchor    = anchor,
-		placement = placement,
-		offset    = offset,
-		child     = c,
-		opacity   = opacity,
+		anchor        = anchor,
+		placement     = placement,
+		offset        = offset,
+		child         = c,
+		shadow_radius = shadow_radius,
+		opacity       = opacity,
 	}
 }
 

@@ -75,8 +75,8 @@ top-level builders:
 - Primitives: `text`, `rect`, `spacer`, `image`, `divider`
 - Widgets: `button`, `checkbox`, `radio`, `toggle`, `slider`, `progress`,
   `select`, `text_input`, `number_input`, `segmented`, `tabs`, `menu`,
-  `right_click_zone`, `drop_zone`, `tooltip`, `toast`, `dialog`, `link`,
-  `table`, `virtual_list`
+  `left_click_zone`, `right_click_zone`, `drop_zone`, `tooltip`, `toast`,
+  `dialog`, `link`, `table`, `virtual_list`
 
 Widgets *push* Msgs onto `ctx.msgs` when the input frame says they were
 clicked, dragged, typed into, or dropped on. The builder returns a `View`

@@ -9528,6 +9528,47 @@ menu :: proc(
 	return View_Zone{id = id, child = c}
 }
 
+// left_click_zone wraps `child` in a transparent left-click target. It
+// emits `on_left_click` when a left press starts inside the child's rect
+// and the matching release also lands inside that rect. The child keeps
+// all of its normal layout and visuals; the zone only records and hit-tests
+// its bounds.
+//
+//     skald.left_click_zone(ctx, row_body, Row_Clicked{key = item.key})
+//
+// Use this when a composed view should act as one click target but should
+// not look like a button or link. Hit-testing uses the previous frame's
+// stamped child rect through View_Zone, matching other Skald widgets.
+left_click_zone :: proc(
+	ctx:           ^Ctx($Msg),
+	child:         View,
+	on_left_click: Msg,
+	id:            Widget_ID = 0,
+) -> View {
+	id := widget_resolve_id(ctx, id)
+	st := widget_get(ctx, id, .Click_Zone)
+	hovered := widget_hovered(ctx, id)
+
+	if ctx.input.mouse_pressed[.Left] && hovered {
+		st.pressed = true
+	}
+	if ctx.input.mouse_released[.Left] {
+		if st.pressed && hovered {
+			send(ctx, on_left_click)
+		}
+		st.pressed = false
+	}
+	if !ctx.input.mouse_buttons[.Left] {
+		st.pressed = false
+	}
+
+	widget_set(ctx, id, st)
+
+	c := new(View, context.temp_allocator)
+	c^ = child
+	return View_Zone{id = id, child = c}
+}
+
 // right_click_zone wraps `child` in a passthrough that emits
 // `on_right_click` whenever a right-mouse press lands inside
 // the child's rect. It's the canonical way to attach a

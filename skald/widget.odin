@@ -60,9 +60,10 @@ Widget_Kind :: enum u8 {
 	Scroll,
 	Select,
 	Tooltip,
-	// Click_Zone is the passthrough wrapper emitted by `zone` and
-	// `right_click_zone`. It carries no visual state of its own — the
-	// slot exists so the renderer can stamp `last_rect` for builders
+	// Click_Zone is the passthrough wrapper emitted by `zone`,
+	// `left_click_zone`, and `right_click_zone`. It carries no visual
+	// state of its own — the slot exists so the renderer can stamp
+	// `last_rect` for builders
 	// that need to hit-test clicks against the wrapped child's area
 	// (context-menu triggers, outside-click dismissal for popovers).
 	Click_Zone,

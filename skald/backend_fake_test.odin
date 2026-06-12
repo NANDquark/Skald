@@ -556,6 +556,94 @@ render_view_queues_overlay_shadow_radius_from_call_site :: proc(t: ^testing.T) {
 }
 
 @(test)
+left_click_zone_does_not_emit_before_rect_is_recorded :: proc(t: ^testing.T) {
+	ws: Widget_Store
+	widget_store_init(&ws)
+	defer widget_store_destroy(&ws)
+
+	input := Input{mouse_pos = {20, 20}}
+	input.mouse_pressed[.Left] = true
+	input.mouse_released[.Left] = true
+
+	msgs := make([dynamic]int)
+	defer delete(msgs)
+
+	ctx := Ctx(int){widgets = &ws, input = &input, msgs = &msgs}
+
+	_ = left_click_zone(&ctx, rect({40, 20}, rgb(0x00FF00)), 7, hash_id("left-zone"))
+
+	testing.expect_value(t, len(msgs), 0)
+}
+
+@(test)
+left_click_zone_emits_on_press_and_release_inside :: proc(t: ^testing.T) {
+	ws: Widget_Store
+	widget_store_init(&ws)
+	defer widget_store_destroy(&ws)
+
+	id := hash_id("left-zone")
+	ws.states[id] = Widget_State{
+		kind       = .Click_Zone,
+		last_rect  = {x = 10, y = 10, w = 40, h = 20},
+		last_frame = ws.frame,
+	}
+
+	msgs := make([dynamic]int)
+	defer delete(msgs)
+
+	press := Input{mouse_pos = {20, 20}}
+	press.mouse_pressed[.Left] = true
+	press.mouse_buttons[.Left] = true
+	ctx := Ctx(int){widgets = &ws, input = &press, msgs = &msgs}
+
+	_ = left_click_zone(&ctx, rect({40, 20}, rgb(0x00FF00)), 7, id)
+	testing.expect_value(t, len(msgs), 0)
+
+	release := Input{mouse_pos = {20, 20}}
+	release.mouse_released[.Left] = true
+	ctx.input = &release
+
+	_ = left_click_zone(&ctx, rect({40, 20}, rgb(0x00FF00)), 7, id)
+
+	if !testing.expect_value(t, len(msgs), 1) {
+		return
+	}
+	testing.expect_value(t, msgs[0], 7)
+}
+
+@(test)
+left_click_zone_does_not_emit_when_release_leaves_zone :: proc(t: ^testing.T) {
+	ws: Widget_Store
+	widget_store_init(&ws)
+	defer widget_store_destroy(&ws)
+
+	id := hash_id("left-zone")
+	ws.states[id] = Widget_State{
+		kind       = .Click_Zone,
+		last_rect  = {x = 10, y = 10, w = 40, h = 20},
+		last_frame = ws.frame,
+	}
+
+	msgs := make([dynamic]int)
+	defer delete(msgs)
+
+	press := Input{mouse_pos = {20, 20}}
+	press.mouse_pressed[.Left] = true
+	press.mouse_buttons[.Left] = true
+	ctx := Ctx(int){widgets = &ws, input = &press, msgs = &msgs}
+
+	_ = left_click_zone(&ctx, rect({40, 20}, rgb(0x00FF00)), 7, id)
+
+	release := Input{mouse_pos = {80, 20}}
+	release.mouse_released[.Left] = true
+	ctx.input = &release
+
+	_ = left_click_zone(&ctx, rect({40, 20}, rgb(0x00FF00)), 7, id)
+
+	testing.expect_value(t, len(msgs), 0)
+}
+
+@(test)
 render_overlays_uses_context_queue_and_restores_alpha :: proc(t: ^testing.T) {
 	fake: Fake_Backend_State
 	defer delete(fake.ops)

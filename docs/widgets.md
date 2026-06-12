@@ -46,7 +46,7 @@ per row" recipe walks through both styles.
 - [Containers and layout helpers](#containers-and-layout-helpers) — list_frame, form_row, section_header, collapsible, accordion, empty_state
 - [Small decorations](#small-decorations) — badge, chip, avatar, kbd, stepper, alert
 - [Floating and feedback](#floating-and-feedback) — overlay, tooltip, dialog, confirm_dialog, alert_dialog, toast, menu
-- [Interaction helpers](#interaction-helpers) — right_click_zone, context_menu, drop_zone, drag_over
+- [Interaction helpers](#interaction-helpers) — left_click_zone, right_click_zone, context_menu, drop_zone, drag_over
 - [Framework helpers](#framework-helpers) — widget_tab_index, font_add_fallback, font_use_default_emoji, Window_State
 
 ---
@@ -1484,6 +1484,17 @@ For menu-bar style top-level menus, use `menu_bar` instead.
 ---
 
 ## Interaction helpers
+
+### left_click_zone
+
+```odin
+left_click_zone(ctx, child: View, on_left_click: Msg)
+```
+
+Wraps a child view as a transparent left-click target. Emits
+`on_left_click` when the user presses inside the child rect and releases
+inside it. Use when a composed row, canvas region, or pane area should
+act as one click target without button styling.
 
 ### right_click_zone
 

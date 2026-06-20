@@ -3,7 +3,6 @@ package skald
 import "base:intrinsics"
 import "core:fmt"
 import "core:hash"
-import "core:os"
 import "core:strconv"
 import "core:strings"
 import "core:time"
@@ -1939,11 +1938,21 @@ span_link :: proc(str, target: string, color: Color = {}) -> Text_Span {
 @(private)
 rich_span_font :: proc(r: ^Renderer, base_font: Font, sp: Text_Span) -> Font {
 	if sp.font != 0 { return sp.font }
-	if sp.weight == .Bold && sp.italic { return r.text.bold_italic_font }
-	if sp.weight == .Bold              { return r.text.bold_font        }
-	if sp.italic                       { return r.text.italic_font      }
-	if base_font != 0                  { return base_font               }
-	return r.text.default_font
+	when ODIN_OS == .JS {
+		_ = r
+		if base_font != 0 { return base_font }
+		return 0
+	} else {
+		if r == nil {
+			if base_font != 0 { return base_font }
+			return 0
+		}
+		if sp.weight == .Bold && sp.italic { return r.text.bold_italic_font }
+		if sp.weight == .Bold              { return r.text.bold_font        }
+		if sp.italic                       { return r.text.italic_font      }
+		if base_font != 0                  { return base_font               }
+		return r.text.default_font
+	}
 }
 
 @(private)
@@ -7475,9 +7484,9 @@ classify_locale_tag :: proc(tag: string) -> Date_Locale_Style {
 date_locale_style :: proc() -> Date_Locale_Style {
 	if _date_locale_cache != .Unknown { return _date_locale_cache }
 
-	val, _ := os.lookup_env("LC_TIME", context.temp_allocator)
+	val := platform_locale_env("LC_TIME")
 	if len(val) == 0 {
-		val, _ = os.lookup_env("LANG", context.temp_allocator)
+		val = platform_locale_env("LANG")
 	}
 	if len(val) == 0 {
 		val = win32_user_locale_name()

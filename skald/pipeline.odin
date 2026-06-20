@@ -1,3 +1,4 @@
+#+build !js
 package skald
 
 // Skald's one render pipeline: a single graphics pipeline drives every

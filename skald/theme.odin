@@ -1,7 +1,5 @@
 package skald
 
-import "vendor:sdl3"
-
 // Theme is a bundle of design tokens — colors, corner radii, spacing steps,
 // and font sizes — that widgets and application code consume to stay visually
 // consistent. It is plain data, constructed at app startup via one of the
@@ -185,26 +183,4 @@ System_Theme :: enum u8 {
 	Unknown,
 	Light,
 	Dark,
-}
-
-// system_theme queries the OS's current appearance preference via SDL3.
-// Safe to call after `run` has opened the window; returns `.Unknown`
-// before SDL is initialized or when the platform can't report it.
-//
-//     app := skald.App(State, Msg){
-//         theme = skald.theme_light() if skald.system_theme() == .Light
-//                 else skald.theme_dark(),
-//         ...
-//     }
-//
-// To react to live changes (user flips OS dark mode while the app is
-// running), set `App.on_system_theme_change` — the runtime fires it
-// with the new value when SDL emits `SDL_EVENT_SYSTEM_THEME_CHANGED`.
-system_theme :: proc() -> System_Theme {
-	switch sdl3.GetSystemTheme() {
-	case .LIGHT: return .Light
-	case .DARK:  return .Dark
-	case .UNKNOWN: return .Unknown
-	}
-	return .Unknown
 }

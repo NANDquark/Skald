@@ -1,10 +1,10 @@
-package skald
-
+#+build !js
 // White-box test for View_Opacity. Renders a known-alpha rect through
 // `opacity()` and reads the emitted vertex alpha back out of the batch:
 // the factor must multiply the painted alpha, nest multiplicatively, and
 // leave the global alpha_multiplier restored afterwards. No GPU/text
 // needed — draw_rect only appends to r.batch.
+package skald
 
 import "core:testing"
 

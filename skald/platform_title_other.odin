@@ -1,4 +1,5 @@
 #+build !linux
+#+build !js
 package skald
 
 import "vendor:sdl3"

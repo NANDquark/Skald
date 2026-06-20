@@ -1,7 +1,7 @@
+#+build !js
 package skald
 
 import "core:fmt"
-import "core:strings"
 import "core:unicode/utf8"
 import fs "vendor:fontstash"
 import vk "vendor:vulkan"
@@ -45,10 +45,6 @@ TWEMOJI_MOZILLA :: #load("assets/Twemoji-Mozilla.ttf", []byte)
 // resize callback; we rebuild the GPU image on the next frame.
 @(private)
 ATLAS_SIZE :: 1024
-
-// Font is an opaque handle to a loaded typeface. Obtain one via `font_load`
-// or use the default handle returned from `font_default`.
-Font :: distinct int
 
 // Text owns the fontstash context and the GPU-side R8_UNORM glyph atlas.
 // One instance lives inside the Renderer. The sampler is owned by
@@ -401,13 +397,6 @@ font_load :: proc(r: ^Renderer, name: string, data: []byte) -> Font {
 	return Font(fs.AddFontMem(&r.text.fs, name, data, false))
 }
 
-font_load_ctx :: proc(r: ^Render_Context, name: string, data: []byte) -> Font {
-	assert(r != nil, "font_load_ctx requires render context")
-	assert(r.backend != nil, "font_load_ctx requires backend")
-	assert(r.backend.text.load_font != nil, "font_load_ctx requires text.load_font callback")
-	return r.backend.text.load_font(r.backend.state, name, data)
-}
-
 // font_add_fallback chains `fallback` to `base` so codepoints missing
 // from `base` (e.g. CJK / Arabic / Devanagari glyphs absent from the
 // bundled Inter) are looked up in `fallback` next. Use the default
@@ -510,20 +499,6 @@ draw_text :: proc(
 	}
 }
 
-draw_text_ctx :: proc(
-	r:     ^Render_Context,
-	text:  string,
-	x, y:  f32,
-	color: Color,
-	size:  f32 = 14,
-	font:  Font = 0,
-) {
-	assert(r != nil, "draw_text_ctx requires render context")
-	assert(r.backend != nil, "draw_text_ctx requires backend")
-	assert(r.backend.text.draw != nil, "draw_text_ctx requires text.draw callback")
-	r.backend.text.draw(r.backend.state, text, x, y, color, size, font)
-}
-
 // text_ascent returns the font's ascent (distance from baseline up to the
 // top of the cap) at the given size. The layout code uses it to convert a
 // top-left anchored View_Text origin into the baseline y that `draw_text`
@@ -541,13 +516,6 @@ text_ascent :: proc(r: ^Renderer, size: f32, font: Font = 0) -> f32 {
 	fs.SetSize(&r.text.fs, size * scale)
 	ascent, _, _ := fs.VerticalMetrics(&r.text.fs)
 	return ascent / scale
-}
-
-text_ascent_ctx :: proc(r: ^Render_Context, size: f32, font: Font = 0) -> f32 {
-	assert(r != nil, "text_ascent_ctx requires render context")
-	assert(r.backend != nil, "text_ascent_ctx requires backend")
-	assert(r.backend.text.ascent != nil, "text_ascent_ctx requires text.ascent callback")
-	return r.backend.text.ascent(r.backend.state, size, font)
 }
 
 // measure_text returns the advance width and line height of the string at
@@ -578,18 +546,6 @@ measure_text :: proc(
 	_, _, lh := fs.VerticalMetrics(&r.text.fs)
 	line_height = lh * inv
 	return
-}
-
-measure_text_ctx :: proc(
-	r:    ^Render_Context,
-	text: string,
-	size: f32 = 14,
-	font: Font = 0,
-) -> (width, line_height: f32) {
-	assert(r != nil, "measure_text_ctx requires render context")
-	assert(r.backend != nil, "measure_text_ctx requires backend")
-	assert(r.backend.text.measure != nil, "measure_text_ctx requires text.measure callback")
-	return r.backend.text.measure(r.backend.state, text, size, font)
 }
 
 // text_line_advances fills a freshly-allocated slice of len(text)+1 with
@@ -648,34 +604,6 @@ text_line_advances :: proc(
 	return out
 }
 
-// Backend-neutral fallback for render-context paths. Native rendering keeps
-// the single-shape-pass implementation above; embedded backends can still
-// elide correctly without exposing glyph-cluster internals.
-@(private)
-text_line_advances_ctx :: proc(
-	r:    ^Render_Context,
-	text: string,
-	size: f32 = 14,
-	font: Font = 0,
-	allocator := context.temp_allocator,
-) -> []f32 {
-	if r != nil && r.renderer != nil {
-		return text_line_advances(r.renderer, text, size, font, allocator)
-	}
-	out := make([]f32, len(text) + 1, allocator)
-	if r == nil || len(text) == 0 {return out}
-	for i := 0; i < len(text); {
-		next := i + utf8_step(text, i)
-		out[next], _ = measure_text_ctx(r, text[:next], size, font)
-		i = next
-	}
-	prev: f32 = 0
-	for b in 1 ..= len(text) {
-		if out[b] == 0 {out[b] = prev} else {prev = out[b]}
-	}
-	return out
-}
-
 // byte_index_at_x returns the byte index in `text` whose horizontal
 // position is closest to `x` measured in pixels from the left edge of the
 // string. Used by text_input to translate a mouse click in the content
@@ -712,96 +640,6 @@ byte_index_at_x :: proc(
 		i      = next_i
 	}
 	return len(text)
-}
-
-@(private)
-utf8_step :: proc(s: string, i: int) -> int {
-	if i >= len(s) { return 0 }
-	b := s[i]
-	switch {
-	case b < 0x80:    return 1
-	case b < 0xC0:    return 1 // invalid continuation; advance one anyway
-	case b < 0xE0:    return 2
-	case b < 0xF0:    return 3
-	}
-	return 4
-}
-
-// split_lines splits `s` on cross-platform line breaks. Handles `\r\n`
-// (Windows), bare `\r` (classic Mac), and `\n` (Unix). Returned slice
-// and its backing string-views all live in context.temp_allocator —
-// valid for the rest of the frame, not across frames. An empty input
-// returns a single empty line. Convention matches `wrap_text`: a
-// trailing newline does NOT produce a trailing empty line (rendering
-// "a\n" as one row of "a" matches what most UI text engines do).
-split_lines :: proc(s: string) -> []string {
-	lines: [dynamic]string
-	lines.allocator = context.temp_allocator
-
-	if len(s) == 0 {
-		append(&lines, "")
-		return lines[:]
-	}
-
-	line_start := 0
-	i := 0
-	for i < len(s) {
-		ch := s[i]
-		if ch == '\n' {
-			append(&lines, s[line_start:i])
-			i += 1
-			line_start = i
-		} else if ch == '\r' {
-			append(&lines, s[line_start:i])
-			i += 1
-			// Swallow the \n of a \r\n pair so the empty line between
-			// them isn't double-counted.
-			if i < len(s) && s[i] == '\n' { i += 1 }
-			line_start = i
-		} else {
-			i += 1
-		}
-	}
-	if line_start < len(s) {
-		append(&lines, s[line_start:])
-	}
-	if len(lines) == 0 {
-		append(&lines, "")
-	}
-	return lines[:]
-}
-
-// Visible width of a `\t` character, in space-widths of the current
-// font. Hardcoded for v1; matches common editor defaults. Can become a
-// per-call argument later if anyone needs 2 or 8.
-TAB_WIDTH :: 4
-
-// expand_tabs replaces each `\t` in `s` with `TAB_WIDTH` spaces and
-// returns the result. Returns the input unchanged (no allocation) if
-// `s` contains no tabs — the overwhelming common case for label /
-// paragraph text. Allocates into context.temp_allocator when expansion
-// is needed, so the returned string is valid for the rest of the
-// frame.
-//
-// Used by `text()` (via wrap_text and the no-wrap render path) so a
-// tab in user-supplied content renders as a visible run of whitespace
-// instead of fontstash's missing-glyph tofu. For monospace code the
-// visual lands at the standard 4-column indent; for proportional text
-// the tab is roughly 4 space-widths wide. This is the simple model —
-// no column-aligned tab stops, no per-paragraph reset. App code that
-// needs editor-grade tab handling can pre-process its strings.
-expand_tabs :: proc(s: string) -> string {
-	if !strings.contains_rune(s, '\t') { return s }
-	sb := strings.builder_make(context.temp_allocator)
-	strings.builder_grow(&sb, len(s) + TAB_WIDTH)
-	for i in 0..<len(s) {
-		if s[i] == '\t' {
-			for _ in 0..<TAB_WIDTH { strings.write_byte(&sb, ' ') }
-		} else {
-			strings.write_byte(&sb, s[i])
-		}
-	}
-	return strings.to_string(sb)
 }
 
 // wrap_text breaks `text` into lines so no line's measured width exceeds
@@ -963,45 +801,6 @@ wrap_text :: proc(
 	out := lines[:]
 	if use_cache { r.wrap_cache[key] = out }
 	return out
-}
-
-wrap_text_ctx :: proc(
-	r:         ^Render_Context,
-	text:      string,
-	max_width: f32,
-	size:      f32  = 14,
-	font:      Font = 0,
-) -> []string {
-	assert(r != nil, "wrap_text_ctx requires render context")
-	assert(r.backend != nil, "wrap_text_ctx requires backend")
-	assert(r.backend.text.wrap != nil, "wrap_text_ctx requires text.wrap callback")
-	return r.backend.text.wrap(r.backend.state, text, max_width, size, font)
-}
-
-// Rich_Segment is one styled run inside a single visual line of a
-// `rich_text` widget — a contiguous byte range from one Text_Span
-// plus its measured width and x position within the line. Generated
-// by `wrap_rich_text`; consumed by layout's View_Rich_Text render
-// path which iterates segments per line and draws each in the span's
-// font / size / colour.
-Rich_Segment :: struct {
-	span_idx:   int,
-	byte_start: int,
-	byte_end:   int,
-	x_offset:   f32,
-	width:      f32,
-}
-
-// Rich_Line is one visual line in a wrapped rich-text paragraph.
-// `ascent` is the max ascent across the line's segments — used as the
-// baseline offset so spans with different font sizes share a common
-// glyph-baseline. `height` is the max line-height across the line's
-// segments; consecutive lines stack by this amount.
-Rich_Line :: struct {
-	segments: []Rich_Segment,
-	width:    f32,
-	ascent:   f32,
-	height:   f32,
 }
 
 // Atom is one indivisible unit in the wrap pass: a word run, a space,

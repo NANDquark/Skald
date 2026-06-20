@@ -1,10 +1,10 @@
-package skald
-
+#+build !js
 // White-box tests for multiline text_input wrapping, exercising the REAL
 // shaping path on BOTH backends. Both runa (text_init_runa) and fontstash
 // (fs.Init + AddFontMem) bring up their text state without a GPU — runa's
 // atlas is a CPU rect-packer, and fontstash's measurement path is metric-
 // only with nil-guarded upload callbacks. The renderer is heap-allocated
+package skald
 // (it embeds fontstash's FontContext) and given a Window_Target because
 // `scale` is reached through `using cur`.
 //

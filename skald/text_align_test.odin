@@ -1,10 +1,10 @@
-package skald
-
+#+build !js
 // White-box test for View_Text.align (horizontal placement within an
 // assigned width). Renders the same label into a box wider than its
 // content at .Start / .Center / .End and reads the leftmost glyph vertex
 // x out of the batch. Start pins to the left edge, Center sits at half the
 // slack, End pushes the trailing edge to the right border. Uses the real
+package skald
 // shaping + layout path on a heap renderer (no GPU) like wrap_test.
 
 import "core:testing"

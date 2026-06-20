@@ -1,3 +1,4 @@
+#+build !js
 package skald
 
 // Skald's renderer runs on a pure-Odin Vulkan 1.3 backend: dynamic
@@ -214,30 +215,6 @@ Renderer :: struct {
 	// each target is its own heap allocation, stable for its lifetime.
 	targets:          [dynamic]^Window_Target,
 	using cur:        ^Window_Target,
-}
-
-// Overlay_Entry is one deferred popover/tooltip/menu to be rendered
-// after the main tree. `origin` is already in framebuffer pixel space;
-// `size` is the child's intrinsic size. The child itself is a plain
-// View so overlays can contain any sub-tree.
-Overlay_Entry :: struct {
-	origin: [2]f32,
-	size:   [2]f32,
-	child:  View,
-	// shadow_radius controls the drop shadow drawn beneath this overlay.
-	// 0 suppresses the shadow entirely (used for dialog scrims + other
-	// full-screen entries that shouldn't cast one); a non-zero value
-	// should match the overlay card's visible corner radius so the
-	// shadow hugs its silhouette. Everyone else gets a soft shadow
-	// inserted between the main frame and the popover — see
-	// `render_overlays` in layout.odin.
-	shadow_radius: f32,
-	// opacity fades the entire overlay subtree by multiplying the
-	// renderer's `alpha_multiplier` while rendering this child. 1
-	// is fully visible (default); 0 is invisible. Popover builders
-	// set this from an animated `anim_t` so opening / closing fades
-	// instead of snapping.
-	opacity: f32,
 }
 
 // renderer_init brings up Vulkan for the given window. The window must

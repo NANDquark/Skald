@@ -1,3 +1,4 @@
+#+build !js
 package skald
 
 import "core:time"
@@ -52,24 +53,6 @@ Command :: struct($Msg: typeid) {
 	// consumed by `process_command` the same frame the cmd is
 	// returned.
 	theme_op: ^Theme,
-}
-
-// Command_Kind discriminates a `Command`. `.None` is the zero value so
-// `return state, {}` from an update branch means "no effect" without
-// needing a helper constructor.
-Command_Kind :: enum u8 {
-	None,
-	Now,
-	Delay,
-	Batch,
-	Async,
-	Open_Window,
-	Close_Window,
-	Thread,
-	// Set_Theme swaps the active Theme on the next frame. Apps use it
-	// from update() to apply a theme-picker change immediately,
-	// without a restart. See `cmd_set_theme`.
-	Set_Theme,
 }
 
 // Window_Desc describes a window to be opened by `cmd_open_window`. Mirrors
@@ -168,88 +151,6 @@ cmd_close_window :: proc($Msg: typeid, id: Window_Id) -> Command(Msg) {
 	return Command(Msg){kind = .Close_Window, window_op = op}
 }
 
-// cmd_now schedules `msg` to be delivered back to `update` on the same
-// frame the originating command was returned from. This is useful for
-// chaining follow-up state transitions without involving a widget —
-// e.g., a "Save" button's handler that triggers a "Close_Dialog" after
-// update applies the save.
-//
-// The runtime loops `update` until the msg queue is empty, so `.Now`
-// cascades resolve before the next `view` call.
-cmd_now :: proc(msg: $Msg) -> Command(Msg) {
-	return Command(Msg){kind = .Now, msg = msg}
-}
-
-// cmd_set_theme swaps the app's active Theme on the next frame. The
-// run loop captures `app.theme` once at boot into a mutable local;
-// without this command apps had no way to point that local at a new
-// palette, so a theme-picker UI could update its own state but the
-// running frame kept the old colours until restart.
-//
-// Returned from `update` like any other command:
-//
-//     case Theme_Picked:
-//         out.theme_choice = v
-//         return out, skald.cmd_set_theme(Msg, theme_for(v))
-//
-// The new Theme is copied into the temp arena by this constructor
-// and consumed during the same frame's command dispatch — callers
-// don't need to keep `t` alive past the return statement. Effect
-// lands one frame later (the next view sees the new colours), so a
-// crossfade has to be sequenced by the app on top of this.
-cmd_set_theme :: proc($Msg: typeid, t: Theme) -> Command(Msg) {
-	p := new(Theme, context.temp_allocator)
-	p^ = t
-	return Command(Msg){kind = .Set_Theme, theme_op = p}
-}
-
-// cmd_delay schedules `msg` to be delivered after `seconds` have
-// elapsed. The delay is measured against wall-clock time; the runtime
-// polls pending delays at the top of every frame and releases any that
-// are due.
-//
-// The msg payload must stay valid until the delay fires, which can be
-// many frames later — the framework does not copy it. For Msg variants
-// carrying pointer-typed payloads (strings, slices), clone into a
-// persistent allocator before wrapping in `cmd_delay`. POD payloads
-// (enums, numbers, booleans) need no special handling.
-//
-//     return s, skald.cmd_delay(1.0, Msg.Tick)
-cmd_delay :: proc(seconds: f32, msg: $Msg) -> Command(Msg) {
-	return Command(Msg){kind = .Delay, seconds = seconds, msg = msg}
-}
-
-// cmd_batch bundles several commands into one. The runtime applies
-// them in order; semantically `batch(a, b, c)` is equivalent to
-// returning `a`, then `b`, then `c` from three separate update calls.
-//
-//     return s, skald.cmd_batch(
-//         skald.cmd_delay(1.0, Tick_Msg{}),
-//         skald.cmd_now(Save_Requested{}),
-//     )
-//
-// Children are copied into `context.temp_allocator`; the command
-// itself is typically returned from `update`, whose return value is
-// processed before the frame arena resets.
-cmd_batch :: proc(first: Command($Msg), rest: ..Command(Msg)) -> Command(Msg) {
-	n := len(rest) + 1
-	slice := make([]Command(Msg), n, context.temp_allocator)
-	slice[0] = first
-	for cmd, i in rest {
-		slice[i+1] = cmd
-	}
-	return Command(Msg){kind = .Batch, children = slice}
-}
-
-// Pending_Delay holds a scheduled msg dispatch. `fire_at_ns` is the
-// absolute wall-clock nanosecond value at which the msg should be
-// released — same units as `time.now()._nsec`.
-@(private)
-Pending_Delay :: struct($Msg: typeid) {
-	fire_at_ns: i64,
-	msg:        Msg,
-}
-
 // process_command walks a command tree and applies its effects.
 // `.Now` msgs go straight onto the frame's queue; `.Delay` commands
 // get scheduled for a future frame; `.Batch` recurses into children;
@@ -292,27 +193,6 @@ process_command :: proc(
 	case .Set_Theme:
 		if cmd.theme_op != nil && theme != nil {
 			theme^ = cmd.theme_op^
-		}
-	}
-}
-
-// drain_due_delays moves every pending delay whose deadline has passed
-// onto the msg queue. Called once at the top of each frame so time-
-// based messages show up alongside input-driven ones in the same update
-// pass.
-@(private)
-drain_due_delays :: proc(
-	pending: ^[dynamic]Pending_Delay($Msg),
-	msgs:    ^[dynamic]Msg,
-) {
-	now_ns := time.now()._nsec
-	i := 0
-	for i < len(pending) {
-		if pending[i].fire_at_ns <= now_ns {
-			append(msgs, pending[i].msg)
-			ordered_remove(pending, i)
-		} else {
-			i += 1
 		}
 	}
 }

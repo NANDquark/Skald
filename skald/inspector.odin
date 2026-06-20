@@ -1,3 +1,4 @@
+#+build !js
 package skald
 
 // Debug inspector overlay. F12 toggles a small translucent panel that

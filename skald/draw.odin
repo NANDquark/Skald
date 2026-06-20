@@ -1,3 +1,4 @@
+#+build !js
 package skald
 
 import "core:math"
@@ -96,10 +97,6 @@ renderer_draw_rect :: proc(r: ^Renderer, rect: Rect, color: Color, radius: f32 =
 	append(&r.batch.indices, base + 0, base + 1, base + 2, base + 0, base + 2, base + 3)
 }
 
-render_context_draw_rect :: proc(r: ^Render_Context, rect: Rect, color: Color, radius: f32 = 0) {
-	backend_draw_rect(r, rect, color, radius)
-}
-
 draw_rect :: proc {
 	render_context_draw_rect,
 	renderer_draw_rect,
@@ -159,17 +156,6 @@ renderer_draw_shadow :: proc(
 	append(&r.batch.indices, base + 0, base + 1, base + 2, base + 0, base + 2, base + 3)
 }
 
-render_context_draw_shadow :: proc(
-	r: ^Render_Context,
-	rect: Rect,
-	radius: f32,
-	blur: f32,
-	color: Color,
-	offset: [2]f32 = {0, 4},
-) {
-	backend_draw_shadow(r, rect, radius, blur, color, offset)
-}
-
 draw_shadow :: proc {
 	render_context_draw_shadow,
 	renderer_draw_shadow,
@@ -209,15 +195,6 @@ renderer_draw_gradient_rect :: proc(
 	v.pos = {rect.x, rect.y + rect.h}; v.color = bl; append(&r.batch.vertices, v)
 
 	append(&r.batch.indices, base + 0, base + 1, base + 2, base + 0, base + 2, base + 3)
-}
-
-render_context_draw_gradient_rect :: proc(
-	r: ^Render_Context,
-	rect: Rect,
-	c_tl, c_tr, c_br, c_bl: Color,
-	radius: f32 = 0,
-) {
-	backend_draw_gradient_rect(r, rect, c_tl, c_tr, c_br, c_bl, radius)
 }
 
 draw_gradient_rect :: proc {
@@ -430,15 +407,6 @@ draw_triangle_strip :: proc(r: ^Renderer, verts: [][2]f32, color: Color) {
 	for i in 0 ..< n - 2 {
 		append(&r.batch.indices, base + u32(i), base + u32(i + 1), base + u32(i + 2))
 	}
-}
-
-// Stroke_Sample is one point along a stylus (or mouse) path: position
-// in pixel coordinates plus a 0..1 pressure value. `draw_stroke`
-// consumes a slice of these to produce a filled ribbon whose width at
-// sample i is `base_width * pressure_i`.
-Stroke_Sample :: struct {
-	pos:      [2]f32,
-	pressure: f32,
 }
 
 // draw_stroke renders a pressure-varying filled polyline as a triangle

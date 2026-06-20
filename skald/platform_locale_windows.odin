@@ -1,6 +1,7 @@
 #+build windows
 package skald
 
+import "core:os"
 import win "core:sys/windows"
 
 // win32_user_locale_name returns the user's default locale in the
@@ -18,4 +19,10 @@ win32_user_locale_name :: proc() -> string {
 	n := win.GetLocaleInfoEx(nil, LOCALE_SNAME, &buf[0], i32(len(buf)))
 	if n <= 1 { return "" } // 0 = failure, 1 = just the null terminator
 	return win.wstring_to_utf8(win.wstring(&buf[0]), int(n - 1)) or_else ""
+}
+
+@(private)
+platform_locale_env :: proc(name: string) -> string {
+	val, _ := os.lookup_env(name, context.temp_allocator)
+	return val
 }

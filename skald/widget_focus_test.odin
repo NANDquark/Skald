@@ -1,3 +1,4 @@
+#+build !js
 package skald
 
 import "core:testing"

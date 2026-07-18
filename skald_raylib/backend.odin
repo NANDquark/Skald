@@ -1,15 +1,16 @@
-package skald_karl2d
+package skald_raylib
 
-import k2 "../../karl2d"
-import skald "../skald"
+import "core:c"
 import "core:time"
+import rl "vendor:raylib"
+import skald "../skald"
 
 Backend_State :: struct {
 	input:      skald.Input,
 	capture:    skald.Input_Capture,
 	alpha:      f32,
 	clip_stack: [dynamic]skald.Rect,
-	fonts:      [dynamic]k2.Font,
+	fonts:      [dynamic]rl.Font,
 	images:     map[string]^Image_Entry,
 }
 
@@ -21,13 +22,13 @@ backend_state_destroy :: proc(s: ^Backend_State) {
 	delete(s.clip_stack)
 	s.clip_stack = nil
 	for font in s.fonts {
-		if font != k2.FONT_DEFAULT && font != k2.FONT_NONE {
-			k2.destroy_font(font)
+		if rl.IsFontValid(font) {
+			rl.UnloadFont(font)
 		}
 	}
 	delete(s.fonts)
 	s.fonts = nil
-	k2_image_cache_destroy(s)
+	rl_image_cache_destroy(s)
 }
 
 backend :: proc(state: ^Backend_State) -> skald.Backend {
@@ -44,23 +45,23 @@ backend :: proc(state: ^Backend_State) -> skald.Backend {
 			set_alpha = set_alpha,
 		},
 		text = skald.Backend_Text {
-			load_font = k2_load_font,
-			measure = k2_measure_text,
-			wrap = k2_wrap_text,
-			ascent = k2_text_ascent,
-			draw = k2_draw_text,
-			span_font = k2_span_font,
+			load_font = rl_load_font,
+			measure = rl_measure_text,
+			wrap = rl_wrap_text,
+			ascent = rl_text_ascent,
+			draw = rl_draw_text,
+			span_font = rl_span_font,
 		},
 		images = skald.Backend_Images {
-			load_path = k2_image_load_path,
-			load_bytes = k2_image_load_bytes,
-			load_pixels = k2_image_load_pixels,
-			update_pixels = k2_image_update_pixels,
-			unload = k2_image_unload,
-			size = k2_image_size,
-			draw = k2_image_draw,
-			draw_fit = k2_image_draw_fit,
-			draw_region = k2_image_draw_region,
+			load_path = rl_image_load_path,
+			load_bytes = rl_image_load_bytes,
+			load_pixels = rl_image_load_pixels,
+			update_pixels = rl_image_update_pixels,
+			unload = rl_image_unload,
+			size = rl_image_size,
+			draw = rl_image_draw,
+			draw_fit = rl_image_draw_fit,
+			draw_region = rl_image_draw_region,
 		},
 		input = skald.Backend_Input{snapshot = input_snapshot, capture = input_capture},
 		window = skald.Backend_Window {
@@ -80,7 +81,7 @@ frame_end :: proc(state: rawptr) {}
 
 draw_rect :: proc(state: rawptr, rect: skald.Rect, color: skald.Color, radius: f32) {
 	s := (^Backend_State)(state)
-	k2.draw_rect(to_k2_rect(rect), to_k2_color(color, s.alpha))
+	rl.DrawRectangleRec(to_rl_rect(rect), to_rl_color(color, s.alpha))
 }
 
 draw_gradient_rect :: proc(
@@ -90,9 +91,10 @@ draw_gradient_rect :: proc(
 	radius: f32,
 ) {
 	s := (^Backend_State)(state)
-	// Karl2D has no gradient primitive; use the first stop until the text/image
+	// Raylib has no rounded multi-stop gradient primitive; use the first stop
+	// until the backend grows a richer draw path.
 	// backend grows a richer draw path.
-	k2.draw_rect(to_k2_rect(rect), to_k2_color(c_tl, s.alpha))
+	rl.DrawRectangleRec(to_rl_rect(rect), to_rl_color(c_tl, s.alpha))
 }
 
 draw_shadow :: proc(
@@ -105,7 +107,7 @@ draw_shadow :: proc(
 	if color[3] <= 0 {return}
 	s := (^Backend_State)(state)
 	shadow_rect := skald.Rect{rect.x + offset.x, rect.y + offset.y, rect.w, rect.h}
-	k2.draw_rect(to_k2_rect(shadow_rect), to_k2_color(color, s.alpha))
+	rl.DrawRectangleRec(to_rl_rect(shadow_rect), to_rl_color(color, s.alpha))
 }
 
 push_clip :: proc(state: rawptr, rect: skald.Rect) {
@@ -120,22 +122,23 @@ push_clip :: proc(state: rawptr, rect: skald.Rect) {
 		new_rect = {x0, y0, max(x1 - x0, 0), max(y1 - y0, 0)}
 	}
 	append(&s.clip_stack, new_rect)
-	k2.set_scissor_rect(to_k2_rect(new_rect))
+	rl.BeginScissorMode(c.int(new_rect.x), c.int(new_rect.y), c.int(new_rect.w), c.int(new_rect.h))
 }
 
 pop_clip :: proc(state: rawptr) {
 	s := (^Backend_State)(state)
 	if len(s.clip_stack) == 0 {
-		k2.set_scissor_rect(nil)
+		rl.EndScissorMode()
 		return
 	}
 
 	ordered_remove(&s.clip_stack, len(s.clip_stack) - 1)
+	rl.EndScissorMode()
 	if len(s.clip_stack) == 0 {
-		k2.set_scissor_rect(nil)
 		return
 	}
-	k2.set_scissor_rect(to_k2_rect(s.clip_stack[len(s.clip_stack) - 1]))
+	rect := s.clip_stack[len(s.clip_stack) - 1]
+	rl.BeginScissorMode(c.int(rect.x), c.int(rect.y), c.int(rect.w), c.int(rect.h))
 }
 
 set_alpha :: proc(state: rawptr, alpha: f32) {
@@ -144,27 +147,27 @@ set_alpha :: proc(state: rawptr, alpha: f32) {
 }
 
 window_size :: proc(state: rawptr) -> skald.Size {
-	return {i32(k2.get_screen_width()), i32(k2.get_screen_height())}
+	return {i32(rl.GetScreenWidth()), i32(rl.GetScreenHeight())}
 }
 
 window_scale :: proc(state: rawptr) -> f32 {
-	return k2.get_window_scale()
+	return 1
 }
 
 set_text_input :: proc(state: rawptr, on: bool) {
-	// Karl2D does not currently expose text-input mode toggling through this API.
+	// Raylib queues text input continuously via GetCharPressed.
 }
 
 now_ns :: proc(state: rawptr) -> i64 {
 	return time.now()._nsec
 }
 
-to_k2_rect :: proc(rect: skald.Rect) -> k2.Rect {
-	return k2.Rect{rect.x, rect.y, rect.w, rect.h}
+to_rl_rect :: proc(rect: skald.Rect) -> rl.Rectangle {
+	return rl.Rectangle{rect.x, rect.y, rect.w, rect.h}
 }
 
-to_k2_color :: proc(color: skald.Color, alpha: f32 = 1) -> k2.Color {
-	return {
+to_rl_color :: proc(color: skald.Color, alpha: f32 = 1) -> rl.Color {
+	return rl.Color{
 		u8(clamp01(color[0]) * 255 + 0.5),
 		u8(clamp01(color[1]) * 255 + 0.5),
 		u8(clamp01(color[2]) * 255 + 0.5),

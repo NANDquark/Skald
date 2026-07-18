@@ -1,6 +1,6 @@
 package skald_karl2d
 
-import k2 "../karl2d"
+import k2 "../../karl2d"
 import skald "../skald"
 
 key_pairs :: [?]struct {

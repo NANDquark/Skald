@@ -1,7 +1,7 @@
-package skald_karl2d
+package skald_raylib
 
-import k2 "../../karl2d"
 import skald "../skald"
+import rl "vendor:raylib"
 
 Context :: struct($State, $Msg: typeid) {
 	app:           skald.App(State, Msg),
@@ -42,7 +42,7 @@ init :: proc(ctx: ^Context($State, $Msg), app: skald.App(State, Msg)) -> bool {
 }
 
 shutdown :: proc(ctx: ^Context($State, $Msg)) {
-	assert(!ctx.frame_active, "skald_karl2d.shutdown called while a frame is active")
+	assert(!ctx.frame_active, "skald_raylib.shutdown called while a frame is active")
 
 	if ctx.runtime_ready {
 		skald.embedded_runtime_destroy(&ctx.runtime)
@@ -60,7 +60,7 @@ frame :: proc(ctx: ^Context($State, $Msg)) {
 }
 
 begin_frame :: proc(ctx: ^Context($State, $Msg)) {
-	assert(!ctx.frame_active, "skald_karl2d.begin_frame called while a frame is already active")
+	assert(!ctx.frame_active, "skald_raylib.begin_frame called while a frame is already active")
 	ctx.frame_active = true
 
 	if ctx.runtime_ready {
@@ -87,7 +87,7 @@ begin_frame :: proc(ctx: ^Context($State, $Msg)) {
 }
 
 end_frame :: proc(ctx: ^Context($State, $Msg)) {
-	assert(ctx.frame_active, "skald_karl2d.end_frame called before begin_frame")
+	assert(ctx.frame_active, "skald_raylib.end_frame called before begin_frame")
 	defer {
 		ctx.frame_active = false
 		free_all(context.temp_allocator)
@@ -108,7 +108,7 @@ end_frame :: proc(ctx: ^Context($State, $Msg)) {
 		renderer   = nil,
 		render     = &ctx.rc,
 		window     = skald.Window_Id(nil),
-		breakpoint = skald.breakpoint(f32(k2.get_screen_width())),
+		breakpoint = skald.breakpoint(f32(rl.GetScreenWidth())),
 	}
 
 	view := ctx.app.view(ctx.state, &ctx_ctx)
